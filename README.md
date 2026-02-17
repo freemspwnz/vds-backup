@@ -85,22 +85,21 @@ The project is designed to be:
    cd vds-backup
    ```
 
-2. **Install the main script**:
+2. **Run the install script** (deploys to `/usr/local` and systemd; does not overwrite existing config or secrets):
 
    ```bash
-   sudo cp bin/backup.sh /usr/local/bin/backup.sh
-   sudo chmod +x /usr/local/bin/backup.sh
+   sudo ./install.sh
+   sudo systemctl daemon-reload
    ```
 
-3. **Install configuration**:
+   The script installs:
+   - `bin/backup.sh` → `/usr/local/bin/backup.sh`
+   - `lib/logger.sh`, `lib/telegram.sh` → `/usr/local/lib/`
+   - `lib/backup/*.sh` → `/usr/local/lib/backup/`
+   - `systemd/backup.service`, `backup.timer` → `/etc/systemd/system/`
+   - If `/usr/local/etc/backup.conf` does not exist, it is created from `etc/backup.conf.example`. Existing config and `/usr/local/secrets/.backup.env` are never overwritten.
 
-   ```bash
-   sudo mkdir -p /usr/local/etc
-   sudo cp etc/backup.conf.example /usr/local/etc/backup.conf
-   sudo chmod 640 /usr/local/etc/backup.conf
-   ```
-
-   Then edit `/usr/local/etc/backup.conf` to match your environment:
+3. **Configure** `/usr/local/etc/backup.conf`:
 
    - `DOCKER_DIR` – root of your docker stack (bind-mounted volumes, configs, etc.).
    - `RESTIC_REPOSITORY` – SFTP URL pointing to router SSD storage, e.g.:
@@ -110,50 +109,29 @@ The project is designed to be:
      ```
 
    - `BACKUP_TMP_BASE_DIR` – base directory for temporary database dumps.
-   - Optional PostgreSQL settings (example):
-     - `POSTGRES_DOCKER_CONTAINER="postgres"`
-     - `POSTGRES_DUMP_USER="postgres"`
-     - `POSTGRES_DUMP_ENABLED=true`
-   - `EXTRA_BACKUP_PATHS` – optional list of additional paths to include.
-   - `RESTIC_EXCLUDES` – paths to exclude from restic backup.
+   - Optional PostgreSQL: `POSTGRES_DOCKER_CONTAINER`, `POSTGRES_DUMP_USER`, `POSTGRES_DUMP_ENABLED`.
+   - `EXTRA_BACKUP_PATHS`, `RESTIC_EXCLUDES` – optional lists.
 
-4. **Install secrets file**:
+4. **Create secrets file** if not already present:
 
    ```bash
    sudo mkdir -p /usr/local/secrets
    sudo tee /usr/local/secrets/.backup.env >/dev/null <<'EOF'
-   # Restic repository password
    RESTIC_PASSWORD="CHANGE_ME"
-
-   # Optional: Telegram notifications
    # TG_TOKEN="..."
    # TG_CHAT_ID="..."
    EOF
-
    sudo chown root:root /usr/local/secrets/.backup.env
    sudo chmod 600 /usr/local/secrets/.backup.env
    ```
 
----
-
-### systemd Integration
-
-1. **Install units**:
-
-   ```bash
-   sudo cp systemd/backup.service /etc/systemd/system/backup.service
-   sudo cp systemd/backup.timer   /etc/systemd/system/backup.timer
-
-   sudo systemctl daemon-reload
-   ```
-
-2. **Enable and start the timer**:
+5. **Enable and start the timer**:
 
    ```bash
    sudo systemctl enable --now backup.timer
    ```
 
-3. **Manual run & logs**:
+6. **Manual run & logs** (optional):
 
    ```bash
    # Manual run
@@ -168,6 +146,8 @@ The project is designed to be:
 
 You can adjust the schedule by editing `systemd/backup.timer` (`OnCalendar=...`)
 before installing it or by overriding it in `/etc/systemd/system/backup.timer.d/`.
+
+**Manual installation** (without `install.sh`): copy `bin/backup.sh` to `/usr/local/bin/`, `lib/*.sh` to `/usr/local/lib/`, `lib/backup/*.sh` to `/usr/local/lib/backup/`, and `systemd/*` to `/etc/systemd/system/`. Create `/usr/local/etc/backup.conf` and `/usr/local/secrets/.backup.env` as in steps 3–4 above.
 
 ---
 
