@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # Lightweight logging module:
-#  - prints to stdout/stderr
+#  - all levels print to stderr so stdout is reserved for data only
 #  - mirrors important events to systemd-journald via `logger`
 #
 # Levels: INFO, WARN, ERROR, DEBUG
@@ -24,11 +24,7 @@ _log() {
         *)     priority="user.notice" ;;
     esac
 
-    if [[ "$level" == "ERROR" || "$level" == "WARN" ]]; then
-        printf '[%s] %s: %s\n' "$ts" "$level" "$msg" >&2
-    else
-        printf '[%s] %s: %s\n' "$ts" "$level" "$msg"
-    fi
+    printf '[%s] %s: %s\n' "$ts" "$level" "$msg" >&2
 
     # In non-debug mode, skip DEBUG messages for journald
     if [[ "$level" == "DEBUG" && "${BACKUP_DEBUG:-0}" != "1" ]]; then
