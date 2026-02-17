@@ -1,0 +1,28 @@
+# Mac FS artifacts
+.DS_Store
+
+# Reference
+reference/
+
+# Dev docs
+docs/
+
+# Secrets
+secrets/
+*.env
+.env.*
+
+# Logs
+var/log/
+
+# Configs
+*.conf
+
+# Cache
+.cache/
+
+# Temp
+tmp/
+
+# Cursor
+.cursor/
