@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+
+# Example: /etc/backup.conf
+# Copy this file to /etc/backup.conf and adapt to your environment.
+
+# Path to docker stack root directory (configs and data live here)
+DOCKER_DIR="/root/docker"
+
+# Restic repository URL on the router SSD (SFTP backend)
+# Format: sftp:user@router:/path/to/repo
+RESTIC_REPOSITORY="sftp:backup@router:/mnt/ssd/restic/vds"
+
+# Optional tags/host for restic
+RESTIC_TAGS="scheduled,router"
+RESTIC_HOST="$(hostname)"
+
+# Base directory for temporary SQLite dumps
+BACKUP_TMP_BASE_DIR="/tmp"
+
+# Additional backup paths (optional)
+# Example:
+# EXTRA_BACKUP_PATHS=(
+#   "/etc"
+#   "/var/lib/some-service"
+# )
+EXTRA_BACKUP_PATHS=()
+
+# Restic excludes
+# Note: paths must be consistent with DOCKER_DIR
+RESTIC_EXCLUDES=(
+  "${DOCKER_DIR}/monitoring/loki/data"
+  "${DOCKER_DIR}/monitoring/victoriametrics/data"
+  "${DOCKER_DIR}/data/postgres/data"
+)
+

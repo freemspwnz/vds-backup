@@ -1,0 +1,16 @@
+[Unit]
+Description=Backup utility via Restic
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/backup.sh
+Environment="BACKUP_CONF_PATH=/etc/backup.conf"
+Environment="BACKUP_SECRETS_PATH=/secrets/backup.env"
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+

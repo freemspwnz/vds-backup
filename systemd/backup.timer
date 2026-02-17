@@ -1,0 +1,11 @@
+[Unit]
+Description=Run VDS backup on schedule
+
+[Timer]
+OnCalendar=*-*-* 04:00:00
+Persistent=true
+Unit=backup.service
+
+[Install]
+WantedBy=timers.target
+
