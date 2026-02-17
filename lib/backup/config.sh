@@ -33,6 +33,9 @@ backup_load_config() {
         # shellcheck source=/dev/null
         source "$conf_path"
         log_debug "Loaded config file: ${conf_path}"
+        # Ensure array vars are set so ${#VAR[@]} is safe in main.sh (no :-0 needed)
+        [[ -z "${EXTRA_BACKUP_PATHS+set}" ]] && EXTRA_BACKUP_PATHS=()
+        [[ -z "${RESTIC_EXCLUDES+set}" ]] && RESTIC_EXCLUDES=()
     else
         log_error "Config file not found: ${conf_path}"
         return 1

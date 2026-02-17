@@ -74,7 +74,7 @@ backup_run() {
     BACKUP_TARGETS+=("${DOCKER_DIR}")
     BACKUP_TARGETS+=("${BACKUP_TMP_DIR}")
 
-    if [[ "${#EXTRA_BACKUP_PATHS[@]:-0}" -gt 0 ]]; then
+    if [[ "${#EXTRA_BACKUP_PATHS[@]}" -gt 0 ]]; then
         local p
         for p in "${EXTRA_BACKUP_PATHS[@]}"; do
             BACKUP_TARGETS+=("$p")
@@ -89,7 +89,7 @@ backup_run() {
     if [[ -n "${RESTIC_HOST:-}" ]]; then
         RESTIC_ARGS+=(--host "${RESTIC_HOST}")
     fi
-    if [[ "${#RESTIC_EXCLUDES[@]:-0}" -gt 0 ]]; then
+    if [[ "${#RESTIC_EXCLUDES[@]}" -gt 0 ]]; then
         local ex
         for ex in "${RESTIC_EXCLUDES[@]}"; do
             RESTIC_ARGS+=(--exclude "${ex}")
