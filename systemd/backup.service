@@ -10,6 +10,7 @@ Environment="BACKUP_CONF_PATH=/usr/local/etc/backup.conf"
 Environment="BACKUP_SECRETS_PATH=/usr/local/secrets/.backup.env"
 StandardOutput=journal
 StandardError=journal
+LogRateLimitIntervalSec=0
 
 [Install]
 WantedBy=multi-user.target
