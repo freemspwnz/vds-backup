@@ -6,13 +6,6 @@ set -euo pipefail
 # Responsible for reading:
 #   - /usr/local/etc/backup.conf        (Bash config with paths, arrays, etc.)
 #   - /usr/local/secrets/.backup.env    (ENV-style secrets: RESTIC_PASSWORD, TG_TOKEN, ...)
-#
-# We intentionally do NOT use the generic import_file/import_lib from the
-# reference implementation here because:
-#   - /etc/backup.conf is a Bash script with arrays and expressions, not a
-#     simple KEY=VALUE file, so import_file's line-based parser would reject it.
-#   - For .env files we prefer to rely on Bash's own parser with `set -a`,
-#     which correctly handles quoting and special characters.
 
 BACKUP_CONF_PATH_DEFAULT="/usr/local/etc/backup.conf"
 BACKUP_SECRETS_PATH_DEFAULT="/usr/local/secrets/.backup.env"

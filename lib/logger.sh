@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 
 # Lightweight logging module:
-#  - single source: logger(1) with full line [timestamp] LEVEL: msg → journal (tag backup, priority) and stderr
-#  - stdout is reserved for data only
+#  - single source: logger(1) with LEVEL: msg (no timestamp; journal adds its own)
+#  - stdout is reserved for data only; on logger failure fallback to stderr
 #
 # Levels: INFO, WARN, ERROR, DEBUG
 
@@ -12,12 +12,11 @@ LOG_TAG="${LOG_TAG:-backup}"
 _log() {
     local level="$1"
     local msg="$2"
-    local priority ts line
+    local priority line
 
     [[ "$level" == "DEBUG" && "${BACKUP_DEBUG:-0}" != "1" ]] && return 0
 
-    ts="$(date '+%Y-%m-%d %H:%M:%S')"
-    line="[${ts}] ${level}: ${msg}"
+    line="${level}: ${msg}"
 
     case "$level" in
         INFO)  priority="user.info" ;;
@@ -28,7 +27,7 @@ _log() {
     esac
 
     if command -v logger >/dev/null 2>&1; then
-        logger -t "$LOG_TAG" -p "$priority" -- "$line" || true
+        logger -t "$LOG_TAG" -p "$priority" -- "$line" || printf '%s\n' "$line" >&2
     else
         printf '%s\n' "$line" >&2
     fi

@@ -36,14 +36,13 @@ backup_run_restic_backup() {
     #   - stores the exit code in BACKUP_RESTIC_EXIT.
 
     BACKUP_RESTIC_LOG="$(
-        "${RESTIC_BIN}" -r "${RESTIC_REPOSITORY}" backup "$@" 2>&1 | tee /dev/stdout
+        "${RESTIC_BIN}" -r "${RESTIC_REPOSITORY}" backup "$@" 2>&1
     )"
     BACKUP_RESTIC_EXIT=$?
 }
 
 backup_extract_restic_stats() {
-    # Extract key stats lines from BACKUP_RESTIC_LOG.
-    # Returns a possibly empty string.
+    # Extract key stats lines from BACKUP_RESTIC_LOG
     printf '%s\n' "${BACKUP_RESTIC_LOG:-}" | grep -E 'Files:|Dirs:|Added to the repository' || true
 }
 

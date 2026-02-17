@@ -4,15 +4,8 @@ set -euo pipefail
 
 # Disk / source directory check for backup.
 #
-# This module is conceptually inspired by the reference `disk_checkup.sh`,
-# but adapted to this project's model, where:
-#   - we run on the VDS host,
-#   - the local data to be backed up is under DOCKER_DIR,
-#   - the actual restic repository lives remotely (SFTP on router SSD).
-#
 # Here we validate that DOCKER_DIR exists, is readable, and contains at least
-# one reasonable subdirectory entry to back up. This is the closest equivalent
-# to a "disk check" we can do from the VDS side without mounting the router SSD.
+# one reasonable subdirectory entry to back up.
 #
 # Side effects:
 #   - Sets global DISK_STATUS to one of: [OK], [FAIL].
