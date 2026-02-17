@@ -1,91 +1,84 @@
-## vds-backup
+# vds-backup
 
-**vds-backup** is a small, production-ready backup system for a single VDS host.
-It uses **restic** with an **SFTP repository on a router SSD**, performs
-automatic SQLite discovery/dumps from your `docker/` stack, and integrates
-cleanly with `systemd` and `journald`.
-
-The project is designed to be:
-
-- **Safe**: only logical dumps of SQLite, repository is checked before backup.
-- **Observable**: structured logging with `logger`, visible via `journalctl`.
-- **Simple to operate**: one main script, config + secrets files, `systemd` timer.
+**VDS backup to Keenetic router via Restic over SFTP.** Automated, observable, and safe: logical SQLite/PostgreSQL dumps, repository checks, systemd timer, and structured logging to journald.
 
 ---
 
-### Architecture Overview
+## Overview
 
-- **Main script**: `bin/backup.sh`
-  - Loads configuration from `/usr/local/etc/backup.conf`.
-  - Loads secrets from `/usr/local/secrets/.backup.env`.
-  - Creates a temporary directory for DB dumps and cleans it up via `trap` on
-    any exit (success, error, or signal).
-  - Auto-discovers SQLite databases under `DOCKER_DIR`.
-  - Creates logical dumps using `sqlite3 .dump`.
-  - Runs `restic backup` against:
-    - your `DOCKER_DIR`,
-    - the temporary dumps directory,
-    - any extra paths configured in `EXTRA_BACKUP_PATHS`.
-  - Verifies restic repository accessibility before backup (`restic snapshots --last 1`).
+vds-backup backs up a single VDS host to an **SFTP repository** (typically on a **Keenetic** router with SSD storage). It uses **[restic](https://restic.net)** for deduplicated, encrypted backups, **systemd** for scheduling, and **Bash** with modular libraries for configuration and execution.
 
-- **Logging**: `/usr/local/lib/logger.sh`
-  - Thin wrapper around the `logger` utility with levels:
-    - `log_info`, `log_warn`, `log_error`, `log_debug`.
-  - All messages are printed to stdout/stderr.
-  - Important messages are mirrored to `journald` with tag `backup` (configurable via `LOG_TAG`).
-  - Debug messages are sent to journald only when `BACKUP_DEBUG=1`.
-
-- **SQLite and PostgreSQL dumps**:
-  - `/usr/local/lib/backup/sqlite_discovery.sh`
-    - `sqlite_find_databases <root_dir>`:
-      - Recursively finds `*.sqlite`, `*.db`, `*.sqlite3` under the given directory.
-  - `/usr/local/lib/backup/sqlite_dump.sh`
-    - `sqlite_dump_databases <db_list_file_or_dash> <tmp_dir> <timestamp>`:
-      - Reads a list of database paths (from file or stdin).
-      - Produces logical dumps via `sqlite3 ".dump"` into `tmp_dir`.
-      - Prints paths to successfully created dump files.
-  - `/usr/local/lib/backup/postgres_dump.sh`
-    - `backup_postgres_dump`:
-      - Optionally creates a logical PostgreSQL dump from a Docker container using `pg_dumpall`.
-
-- **Configuration**:
-  - Example: `etc/backup.conf.example` (in the repo)
-  - Real file (on the host): `/usr/local/etc/backup.conf`
-
-- **Secrets**:
-  - Real file (on the host): `/usr/local/secrets/.backup.env`
-  - Used for `RESTIC_PASSWORD` and other sensitive values.
-
-- **systemd units**:
-  - `systemd/backup.service`
-    - Runs `backup.sh` as a oneshot service.
-    - `StandardOutput=journal`, `StandardError=journal`.
-  - `systemd/backup.timer`
-    - Schedules `backup.service` (e.g. daily at 03:00).
+- **Source:** Docker stack directory (configs, bind-mounted data), optional extra paths.
+- **Databases:** Auto-discovered SQLite (`*.sqlite`, `*.db`, `*.sqlite3`) and optional PostgreSQL via Docker; logical dumps only (no raw DB file backup).
+- **Destination:** `sftp:user@router:/path/to/repo` (restic repo on router).
+- **Automation:** systemd oneshot service + timer (e.g. daily at 04:00).
 
 ---
 
-### Requirements
+## Key Features
 
-- Linux host (systemd based).
-- `bash` (for the backup script and libraries).
-- `restic` installed on the VDS.
-- `sqlite3` for SQLite dumps.
-- `logger` (usually provided by `util-linux` or equivalent).
-- Passwordless SSH/SFTP key-based access from the VDS to the router.
+| Feature | Description |
+|--------|-------------|
+| **Restic** | Deduplication, encryption, SFTP backend; repository checked before each run (`restic snapshots --last 1`). |
+| **systemd** | `backup.service` (oneshot) + `backup.timer`; install to `/etc/systemd/system`, `systemctl daemon-reload` after changes. |
+| **Structured logging** | Level-based logging (INFO, WARN, ERROR, DEBUG) with priority-style prefixes; stderr captured by journald; `SyslogIdentifier=backup` for filtering. |
+| **journald** | All output via `StandardOutput=journal` / `StandardError=journal`; view with `journalctl -u backup.service` or `journalctl -t backup`. |
+| **Bash arrays** | `EXTRA_BACKUP_PATHS` and `RESTIC_EXCLUDES` are Bash arrays in `/usr/local/etc/backup.conf` for flexible paths and exclude rules. |
+| **Safe DB backup** | SQLite: `sqlite3 .dump`; PostgreSQL: `pg_dumpall` in container; dumps in a temp dir, included in restic, cleaned up on exit via `trap`. |
+| **Optional Telegram** | HTML report after each run (success/failure) if `TG_TOKEN` and `TG_CHAT_ID` are set in secrets. |
 
 ---
 
-### Installation
+## Project Structure
 
-1. **Clone the repository** (on your VDS):
+| Path (in repo) | Installed to | Purpose |
+|----------------|--------------|---------|
+| `bin/backup.sh` | `/usr/local/bin/backup.sh` | Entrypoint; uses `/usr/bin/env bash`, sources libs from `LIB_ROOT` (default `/usr/local/lib`). |
+| `lib/logger.sh` | `/usr/local/lib/logger.sh` | Logging: `log_info`, `log_warn`, `log_error`, `log_debug`; level prefixes; DEBUG only when `BACKUP_DEBUG=1`. |
+| `lib/telegram.sh` | `/usr/local/lib/telegram.sh` | `tg_send_html` for Telegram Bot API. |
+| `lib/backup/config.sh` | `/usr/local/lib/backup/config.sh` | Loads `/usr/local/etc/backup.conf` and `/usr/local/secrets/.backup.env`; ensures array vars. |
+| `lib/backup/main.sh` | `/usr/local/lib/backup/main.sh` | Orchestration: disk check, SQLite discovery/dump, optional PostgreSQL dump, restic backup, Telegram report. |
+| `lib/backup/restic.sh` | `/usr/local/lib/backup/restic.sh` | `backup_check_repository`, `backup_run_restic_backup`, `backup_extract_restic_stats`. |
+| `lib/backup/disk_check.sh` | `/usr/local/lib/backup/disk_check.sh` | Validates `DOCKER_DIR` (exists, readable, has dirs); sets `DISK_STATUS` [OK]/[FAIL]. |
+| `lib/backup/report.sh` | `/usr/local/lib/backup/report.sh` | Builds and sends Telegram HTML report (host, disk status, repo, restic stats). |
+| `lib/backup/sqlite_discovery.sh` | `/usr/local/lib/backup/sqlite_discovery.sh` | `sqlite_find_databases <root_dir>` — finds `*.sqlite`, `*.db`, `*.sqlite3`. |
+| `lib/backup/sqlite_dump.sh` | `/usr/local/lib/backup/sqlite_dump.sh` | `sqlite_dump_databases` — logical dumps into temp dir. |
+| `lib/backup/postgres_dump.sh` | `/usr/local/lib/backup/postgres_dump.sh` | `backup_postgres_dump` — optional `docker exec … pg_dumpall`. |
+| `etc/backup.conf.example` | — | Example config; copied to `/usr/local/etc/backup.conf` by install only if missing. |
+| — | `/usr/local/etc/backup.conf` | **Your** config (paths, repo, arrays); not overwritten by install. |
+| — | `/usr/local/secrets/.backup.env` | **Secrets** (e.g. `RESTIC_PASSWORD`, `TG_TOKEN`, `TG_CHAT_ID`); never touched by install. |
+| `systemd/backup.service` | `/etc/systemd/system/backup.service` | Oneshot; `ExecStart=/usr/bin/env bash /usr/local/bin/backup.sh`; env for config/secrets paths; journal + `SyslogIdentifier=backup`. |
+| `systemd/backup.timer` | `/etc/systemd/system/backup.timer` | Schedules `backup.service` (e.g. `OnCalendar=*-*-* 04:00:00`). |
+| `install.sh` | — | Deploys files to `/usr/local` and systemd; does not overwrite existing config or secrets. |
+
+---
+
+## Prerequisites
+
+- **Linux** host with **systemd**.
+- **Bash 4+** (for arrays and `mapfile` in backup scripts).
+- **restic** installed on the VDS (in `PATH` or set `RESTIC_BIN` in config).
+- **sqlite3** for SQLite logical dumps.
+- **SSH key-based access** from VDS to the router (passwordless SFTP); no agent on router required beyond SSH/SFTP.
+- **Router (e.g. Keenetic):** SSH/SFTP server; if using **Entware**, ensure `openssh-sftp-server` or equivalent is available so restic can use SFTP.
+
+Optional:
+
+- **Docker** (for PostgreSQL dumps).
+- **curl** (for Telegram notifications).
+
+---
+
+## Installation & Setup
+
+1. **Clone the repository** (on the VDS):
 
    ```bash
    git clone https://github.com/you/vds-backup.git
    cd vds-backup
    ```
 
-2. **Run the install script** (deploys to `/usr/local` and systemd; does not overwrite existing config or secrets):
+2. **Run the installer** (deploys to `/usr/local` and systemd; does not overwrite existing `/usr/local/etc/backup.conf` or `/usr/local/secrets/.backup.env`):
 
    ```bash
    sudo ./install.sh
@@ -93,26 +86,16 @@ The project is designed to be:
    ```
 
    The script installs:
+
    - `bin/backup.sh` → `/usr/local/bin/backup.sh`
-   - `lib/logger.sh`, `lib/telegram.sh` → `/usr/local/lib/`
+   - `lib/*.sh` → `/usr/local/lib/`
    - `lib/backup/*.sh` → `/usr/local/lib/backup/`
-   - `systemd/backup.service`, `backup.timer` → `/etc/systemd/system/`
-   - If `/usr/local/etc/backup.conf` does not exist, it is created from `etc/backup.conf.example`. Existing config and `/usr/local/secrets/.backup.env` are never overwritten.
+   - `systemd/backup.service` and `backup.timer` → `/etc/systemd/system/`
+   - If `/usr/local/etc/backup.conf` does not exist, it is created from `etc/backup.conf.example`.
 
-3. **Configure** `/usr/local/etc/backup.conf`:
+3. **Configure** `/usr/local/etc/backup.conf` (see [Configuration](#configuration)).
 
-   - `DOCKER_DIR` – root of your docker stack (bind-mounted volumes, configs, etc.).
-   - `RESTIC_REPOSITORY` – SFTP URL pointing to router SSD storage, e.g.:
-
-     ```bash
-     RESTIC_REPOSITORY="sftp:backup@router:/mnt/ssd/restic/vds"
-     ```
-
-   - `BACKUP_TMP_BASE_DIR` – base directory for temporary database dumps.
-   - Optional PostgreSQL: `POSTGRES_DOCKER_CONTAINER`, `POSTGRES_DUMP_USER`, `POSTGRES_DUMP_ENABLED`.
-   - `EXTRA_BACKUP_PATHS`, `RESTIC_EXCLUDES` – optional lists.
-
-4. **Create secrets file** if not already present:
+4. **Create secrets** (if not present):
 
    ```bash
    sudo mkdir -p /usr/local/secrets
@@ -131,146 +114,135 @@ The project is designed to be:
    sudo systemctl enable --now backup.timer
    ```
 
-6. **Manual run & logs** (optional):
+To change the schedule, edit the timer before install or add an override, e.g. `/etc/systemd/system/backup.timer.d/override.conf` with `OnCalendar=...`.
+
+---
+
+## Configuration
+
+Config is a Bash script: `/usr/local/etc/backup.conf`. Required and optional variables:
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DOCKER_DIR` | Yes | Root of the Docker stack (bind mounts, configs, data) to back up. |
+| `RESTIC_REPOSITORY` | Yes | Restic repo URL, e.g. `sftp:backup@router:/mnt/ssd/restic/vds`. |
+| `BACKUP_TMP_BASE_DIR` | No | Base directory for temporary DB dumps (default: `/tmp`). |
+| `RESTIC_TAGS` | No | Tag string for restic (e.g. `scheduled,vds`). |
+| `RESTIC_HOST` | No | Host name for restic snapshots (e.g. `$(hostname)`). |
+| `RESTIC_BIN` | No | Path to restic (default: `restic`). |
+| `EXTRA_BACKUP_PATHS` | No | Bash array of additional paths to back up. |
+| `RESTIC_EXCLUDES` | No | Bash array of paths to exclude from backup. |
+| `POSTGRES_DOCKER_CONTAINER` | No | PostgreSQL container name; if unset, PG dump is skipped. |
+| `POSTGRES_DUMP_USER` | No | User for `pg_dumpall` (default: `postgres`). |
+| `POSTGRES_DUMP_ENABLED` | No | Set to `false` to disable PostgreSQL dump. |
+
+**Example** `/usr/local/etc/backup.conf`:
+
+```bash
+DOCKER_DIR="/root/docker"
+RESTIC_REPOSITORY="sftp:backup@router:/mnt/ssd/restic/vds"
+RESTIC_TAGS="scheduled,vds"
+RESTIC_HOST="$(hostname)"
+BACKUP_TMP_BASE_DIR="/tmp"
+
+EXTRA_BACKUP_PATHS=()
+RESTIC_EXCLUDES=(
+  "${DOCKER_DIR}/monitoring/loki/data"
+  "${DOCKER_DIR}/data/postgres/data"
+)
+
+# Optional PostgreSQL
+# POSTGRES_DOCKER_CONTAINER="postgres"
+# POSTGRES_DUMP_USER="postgres"
+# POSTGRES_DUMP_ENABLED=true
+```
+
+Secrets in `/usr/local/secrets/.backup.env` (sourced by config loader):
+
+- `RESTIC_PASSWORD` — required for restic.
+- `TG_TOKEN`, `TG_CHAT_ID` — optional; enable Telegram reports.
+
+---
+
+## Logging & Monitoring
+
+- The service runs with **`StandardOutput=journal`** and **`StandardError=journal`**, so all script output is in journald.
+- **`SyslogIdentifier=backup`** is set in `backup.service`; use it to filter logs by tag.
+
+**View logs:**
+
+```bash
+# Last run and follow
+sudo journalctl -u backup.service -f
+
+# By syslog identifier (tag "backup")
+sudo journalctl -t backup -f
+
+# Last 100 lines
+sudo journalctl -u backup.service -n 100
+```
+
+Debug lines are only emitted when **`BACKUP_DEBUG=1`** (e.g. in the service override or environment).
+
+---
+
+## SSH Key Setup (SFTP to Router)
+
+On the VDS:
+
+1. Generate a key (if needed):
 
    ```bash
-   # Manual run
-   sudo systemctl start backup.service
-
-   # Service logs
-   sudo journalctl -u backup.service -f
-
-   # All logs with tag "backup"
-   sudo journalctl -t backup -f
+   ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -C "vds"
    ```
 
-You can adjust the schedule by editing `systemd/backup.timer` (`OnCalendar=...`)
-before installing it or by overriding it in `/etc/systemd/system/backup.timer.d/`.
+2. Copy the public key to the router (e.g. user `vds`, host `router`):
 
-**Manual installation** (without `install.sh`): copy `bin/backup.sh` to `/usr/local/bin/`, `lib/*.sh` to `/usr/local/lib/`, `lib/backup/*.sh` to `/usr/local/lib/backup/`, and `systemd/*` to `/etc/systemd/system/`. Create `/usr/local/etc/backup.conf` and `/usr/local/secrets/.backup.env` as in steps 3–4 above.
+   ```bash
+   ssh-copy-id -i ~/.ssh/id_ed25519.pub vds@router
+   ```
 
----
+3. Verify passwordless access:
 
-### How Database Dumps Work (SQLite and PostgreSQL)
-
-1. `backup.sh` reads `DOCKER_DIR` from `/usr/local/etc/backup.conf`.
-2. SQLite:
-   - `sqlite_find_databases` scans `DOCKER_DIR` recursively for:
-     - `*.sqlite`
-     - `*.db`
-     - `*.sqlite3`
-   - All found database paths are passed to `sqlite_dump_databases`, which:
-     - Uses `sqlite3 <db> ".dump"` to produce consistent logical dumps.
-     - Names dumps using a timestamp and a path-based safe name.
-     - Writes dumps into a dedicated temporary directory (`BACKUP_TMP_DIR`).
-3. PostgreSQL (optional):
-   - If `POSTGRES_DOCKER_CONTAINER` is set and Docker is available,
-     `backup_postgres_dump` runs:
-     - `docker exec <container> pg_dumpall -c -U <user> > postgres_all_<timestamp>.sql`
-     - The dump is also written into `BACKUP_TMP_DIR`.
-4. `BACKUP_TMP_DIR` is included in the `restic backup` targets.
-5. `trap` in the backup orchestrator ensures `BACKUP_TMP_DIR` is removed on any script exit.
-
-This approach avoids copying live database files directly and keeps the backup
-logic decoupled from database engines and runtime state.
+   ```bash
+   ssh vds@router "echo ok"
+   sftp vds@router:tmp/mnt/ssd
+   ```
 
 ---
 
-### Telegram Notifications
+## Restic Repository (SFTP on Router)
 
-If `TG_TOKEN` and `TG_CHAT_ID` are set in `/usr/local/secrets/.backup.env`, `backup.sh`
-will send an HTML-formatted summary message to Telegram at the end of each run
-(both on success and on failure).
+On the VDS, one-time init:
 
-The message includes:
+```bash
+export RESTIC_PASSWORD='CHANGE_ME'
+export RESTIC_REPOSITORY='sftp:vds@router:/tmp/mnt/ssd/vds'
+restic init
+```
 
-- Hostname
-- Disk checkup status (`[OK]` / `[FAIL]` / `[UNKNOWN]`)
-- Restic repository name and backup status (`[OK]` / `[FAIL]`)
-- Extracted restic statistics (`Files`, `Dirs`, `Added to the repository`)
+Then put `RESTIC_REPOSITORY` in `/usr/local/etc/backup.conf` and `RESTIC_PASSWORD` in `/usr/local/secrets/.backup.env`. Each run checks the repo with `restic snapshots --last 1` before backing up.
 
-Example message:
+---
 
-```html
-<b>Host:</b> VDS
-<b>Disk checkup:</b> [OK]
-<b>Repo 'vds' backup:</b> [OK]
-<b>Stats:</b>
-<pre>Files:           0 new,     0 changed,    37 unmodified
-Dirs:            0 new,     0 changed,    23 unmodified
-Added to the repository: 0 B   (0 B   stored)</pre>
-Backup completed successfully.
+## Telegram Notifications
+
+If `TG_TOKEN` and `TG_CHAT_ID` are set in `/usr/local/secrets/.backup.env`, a short HTML report is sent after each run (success or failure): hostname, disk check status, repo name, backup status, and restic stats (files/dirs/added).
+
+---
+
+## Manual Run
+
+```bash
+sudo systemctl start backup.service
+sudo journalctl -u backup.service -f
 ```
 
 ---
 
-### SSH Key Setup for Router (SFTP Backend)
+## Development Notes
 
-On the VDS host:
-
-1. **Generate a key pair** (if you don’t have one yet):
-
-   ```bash
-   ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -C "vds-backup"
-   ```
-
-2. **Copy the public key to the router** (user and host example: `backup@router`):
-
-   ```bash
-   ssh-copy-id -i ~/.ssh/id_ed25519.pub backup@router
-   ```
-
-   Or append the content of `~/.ssh/id_ed25519.pub` manually to the
-   `authorized_keys` file for the `backup` user on the router.
-
-3. **Verify SSH/SFTP access**:
-
-   ```bash
-   ssh  backup@router "echo ok"
-   sftp backup@router:/mnt/ssd
-   ```
-
-   There should be no password prompts; otherwise restic may hang or fail.
-
----
-
-### Restic Repository Initialization (SFTP on Router SSD)
-
-On the VDS host:
-
-1. **Export environment variables for initial setup**:
-
-   ```bash
-   export RESTIC_PASSWORD='CHANGE_ME'
-   export RESTIC_REPOSITORY='sftp:backup@router:/mnt/ssd/restic/vds'
-   ```
-
-2. **Initialize the repository**:
-
-   ```bash
-   restic init
-   ```
-
-3. **Move values into configuration files**:
-
-   - `RESTIC_REPOSITORY` → `/usr/local/etc/backup.conf`
-   - `RESTIC_PASSWORD`   → `/usr/local/secrets/.backup.env`
-
-After that, `backup.sh` will:
-
-- ensure the repository is accessible (`restic snapshots --last 1`),
-- run `restic backup ...` with tags and excludes from `usr/local/etc/backup.conf`.
-
----
-
-### Development Notes
-
-- All scripts use `set -euo pipefail` where appropriate.
-- Logging is centralized in `/usr/local/lib/logger.sh`:
-  - If you add new modules, prefer calling `log_info/log_warn/log_error/log_debug`.
-- No credentials are hard-coded; all secrets must come from `/usr/local/secrets/.backup.env`
-  or the environment.
-
-For contributions, keep shell code POSIX-ish where possible, but it is acceptable
-to rely on Bash-specific features as the entrypoint is explicitly `bash`.
-
+- Scripts use `set -euo pipefail` where appropriate.
+- Entrypoint is explicitly **Bash** (`/usr/bin/env bash`); Bash-specific features (arrays, `mapfile`) are used.
+- Config paths are overridable via environment: `BACKUP_CONF_PATH`, `BACKUP_SECRETS_PATH` (and in the service unit, `LIB_ROOT` if needed).
+- No credentials in code; all secrets from `/usr/local/secrets/.backup.env` or environment.
