@@ -35,7 +35,7 @@ The project is designed to be:
   - Important messages are mirrored to `journald` with tag `backup` (configurable via `LOG_TAG`).
   - Debug messages are sent to journald only when `BACKUP_DEBUG=1`.
 
-- **SQLite discovery/dumps**:
+- **SQLite and PostgreSQL dumps**:
   - `lib/backup/sqlite_discovery.sh`
     - `sqlite_find_databases <root_dir>`:
       - Recursively finds `*.sqlite`, `*.db`, `*.sqlite3` under the given directory.
@@ -44,6 +44,9 @@ The project is designed to be:
       - Reads a list of database paths (from file or stdin).
       - Produces logical dumps via `sqlite3 ".dump"` into `tmp_dir`.
       - Prints paths to successfully created dump files.
+  - `lib/backup/postgres_dump.sh`
+    - `backup_postgres_dump`:
+      - Optionally creates a logical PostgreSQL dump from a Docker container using `pg_dumpall`.
 
 - **Configuration**:
   - Example: `etc/backup.conf.example`
@@ -106,7 +109,11 @@ The project is designed to be:
      RESTIC_REPOSITORY="sftp:backup@router:/mnt/ssd/restic/vds"
      ```
 
-   - `BACKUP_TMP_BASE_DIR` – base directory for temporary SQLite dumps.
+   - `BACKUP_TMP_BASE_DIR` – base directory for temporary database dumps.
+   - Optional PostgreSQL settings (example):
+     - `POSTGRES_DOCKER_CONTAINER="postgres"`
+     - `POSTGRES_DUMP_USER="postgres"`
+     - `POSTGRES_DUMP_ENABLED=true`
    - `EXTRA_BACKUP_PATHS` – optional list of additional paths to include.
    - `RESTIC_EXCLUDES` – paths to exclude from restic backup.
 
@@ -164,22 +171,28 @@ before installing it or by overriding it in `/etc/systemd/system/backup.timer.d/
 
 ---
 
-### How SQLite Discovery and Dumps Work
+### How Database Dumps Work (SQLite and PostgreSQL)
 
 1. `backup.sh` reads `DOCKER_DIR` from `/etc/backup.conf`.
-2. `sqlite_find_databases` scans `DOCKER_DIR` recursively for:
-   - `*.sqlite`
-   - `*.db`
-   - `*.sqlite3`
-3. All found database paths are passed to `sqlite_dump_databases`, which:
-   - Uses `sqlite3 <db> ".dump"` to produce consistent logical dumps.
-   - Names dumps using a timestamp and a path-based safe name.
-   - Writes dumps into a dedicated temporary directory (`BACKUP_TMP_DIR`).
+2. SQLite:
+   - `sqlite_find_databases` scans `DOCKER_DIR` recursively for:
+     - `*.sqlite`
+     - `*.db`
+     - `*.sqlite3`
+   - All found database paths are passed to `sqlite_dump_databases`, which:
+     - Uses `sqlite3 <db> ".dump"` to produce consistent logical dumps.
+     - Names dumps using a timestamp and a path-based safe name.
+     - Writes dumps into a dedicated temporary directory (`BACKUP_TMP_DIR`).
+3. PostgreSQL (optional):
+   - If `POSTGRES_DOCKER_CONTAINER` is set and Docker is available,
+     `backup_postgres_dump` runs:
+     - `docker exec <container> pg_dumpall -c -U <user> > postgres_all_<timestamp>.sql`
+     - The dump is also written into `BACKUP_TMP_DIR`.
 4. `BACKUP_TMP_DIR` is included in the `restic backup` targets.
-5. `trap` in `backup.sh` ensures `BACKUP_TMP_DIR` is removed on any script exit.
+5. `trap` in the backup orchestrator ensures `BACKUP_TMP_DIR` is removed on any script exit.
 
-This approach avoids copying live SQLite files directly and keeps the backup
-logic decoupled from discovery.
+This approach avoids copying live database files directly and keeps the backup
+logic decoupled from database engines and runtime state.
 
 ---
 

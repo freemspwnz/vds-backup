@@ -64,6 +64,9 @@ backup_run() {
         log_info "No SQLite dumps were created."
     fi
 
+    # PostgreSQL dump (optional, via Docker)
+    backup_postgres_dump || log_warn "PostgreSQL dump step reported an error; continuing with backup."
+
     backup_check_repository
 
     # Build backup targets

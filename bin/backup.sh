@@ -22,6 +22,8 @@ source "${LIB_DIR}/backup/restic.sh"
 # shellcheck source=/dev/null
 source "${LIB_DIR}/backup/report.sh"
 # shellcheck source=/dev/null
+source "${LIB_DIR}/backup/postgres_dump.sh"
+# shellcheck source=/dev/null
 source "${LIB_DIR}/backup/main.sh"
 
 # Shared helpers

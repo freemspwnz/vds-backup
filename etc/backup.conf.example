@@ -17,6 +17,12 @@ RESTIC_HOST="$(hostname)"
 # Base directory for temporary SQLite dumps
 BACKUP_TMP_BASE_DIR="/tmp"
 
+# PostgreSQL backup settings (optional)
+# If POSTGRES_DOCKER_CONTAINER is not set, PostgreSQL dump will be skipped.
+#POSTGRES_DOCKER_CONTAINER="postgres"
+#POSTGRES_DUMP_USER="postgres"
+#POSTGRES_DUMP_ENABLED=true
+
 # Additional backup paths (optional)
 # Example:
 # EXTRA_BACKUP_PATHS=(
