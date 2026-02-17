@@ -14,9 +14,11 @@ source "${LIB_DIR}/logger.sh"
 source "${LIB_DIR}/sqlite_discovery.sh"
 # shellcheck source=/dev/null
 source "${LIB_DIR}/sqlite_dump.sh"
+# shellcheck source=/dev/null
+source "${LIB_DIR}/telegram.sh"
 
 BACKUP_CONF_PATH_DEFAULT="/etc/backup.conf"
-BACKUP_SECRETS_PATH_DEFAULT="/secrets/backup.env"
+BACKUP_SECRETS_PATH_DEFAULT="/secrets/.backup.env"
 
 TIMESTAMP="$(date '+%Y%m%d_%H%M%S')"
 RESTIC_BIN="${RESTIC_BIN:-restic}"
@@ -81,11 +83,56 @@ prepare_tmp_dir() {
     log_info "Temporary directory for DB dumps: ${BACKUP_TMP_DIR}"
 }
 
+disk_checkup() {
+    local path="${DOCKER_DIR:-/}"
+
+    if df -h "$path" >/dev/null 2>&1; then
+        DISK_STATUS="[OK]"
+        log_info "Disk checkup for '${path}' passed."
+        return 0
+    else
+        DISK_STATUS="[FAIL]"
+        log_warn "Disk checkup for '${path}' failed."
+        return 1
+    fi
+}
+
+send_telegram_report() {
+    local host="$1"
+    local repo_name="$2"
+    local backup_status="$3"
+    local backup_status_text="$4"
+    local stats="$5"
+    local disk_status="${DISK_STATUS:-[UNKNOWN]}"
+
+    local msg
+    msg="$(cat <<EOF
+<b>Host:</b> ${host}
+<b>Disk checkup:</b> ${disk_status}
+<b>Repo '${repo_name}' backup:</b> ${backup_status}
+<b>Stats:</b>
+<pre>${stats}</pre>
+Backup ${backup_status_text}.
+EOF
+)"
+
+    tg_send_html "${msg}"
+}
+
 run_backup() {
     load_config
     prepare_tmp_dir
 
-    log_info "Starting backup. Host: $(hostname)"
+    local host
+    host="$(hostname)"
+
+    log_info "Starting backup. Host: ${host}"
+
+    # Disk checkup
+    DISK_STATUS="[UNKNOWN]"
+    if ! disk_checkup; then
+        log_warn "Continuing backup despite disk check failure."
+    fi
 
     # SQLite auto-discovery
     log_info "Discovering SQLite databases under docker directory: ${DOCKER_DIR}"
@@ -141,13 +188,31 @@ run_backup() {
     log_info "Running restic backup..."
     log_debug "Backup targets: ${BACKUP_TARGETS[*]}"
 
-    # Restic output is mirrored to stdout, important events go through logger
-    if ! "${RESTIC_BIN}" -r "${RESTIC_REPOSITORY}" backup "${BACKUP_TARGETS[@]}" "${RESTIC_ARGS[@]}" 2>&1 | tee /dev/stdout; then
+    local restic_log
+    local restic_exit
+
+    # Capture restic output while mirroring it to stdout
+    restic_log="$(
+        "${RESTIC_BIN}" -r "${RESTIC_REPOSITORY}" backup \
+            "${BACKUP_TARGETS[@]}" \
+            "${RESTIC_ARGS[@]}" 2>&1 | tee /dev/stdout
+    )"
+    restic_exit=$?
+
+    local restic_stats
+    restic_stats="$(printf '%s\n' "$restic_log" | grep -E 'Files:|Dirs:|Added to the repository' || true)"
+
+    local repo_name
+    repo_name="${RESTIC_REPOSITORY##*/}"
+
+    if [[ $restic_exit -ne 0 ]]; then
         log_error "Restic backup finished with errors."
+        send_telegram_report "${host}" "${repo_name}" "[FAIL]" "failed" "${restic_stats:-no stats available}"
         exit 1
     fi
 
     log_info "Restic backup finished successfully."
+    send_telegram_report "${host}" "${repo_name}" "[OK]" "completed successfully" "${restic_stats:-no stats available}"
 }
 
 run_backup "$@"

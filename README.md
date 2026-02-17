@@ -114,11 +114,11 @@ The project is designed to be:
 
    ```bash
    sudo mkdir -p /secrets
-   sudo tee /secrets/backup.env >/dev/null <<'EOF'
+   sudo tee /secrets/.backup.env >/dev/null <<'EOF'
    # Restic repository password
    RESTIC_PASSWORD="CHANGE_ME"
 
-   # Optional future integration (e.g. Telegram):
+   # Optional: Telegram notifications
    # TG_TOKEN="..."
    # TG_CHAT_ID="..."
    EOF
@@ -180,6 +180,34 @@ before installing it or by overriding it in `/etc/systemd/system/backup.timer.d/
 
 This approach avoids copying live SQLite files directly and keeps the backup
 logic decoupled from discovery.
+
+---
+
+### Telegram Notifications
+
+If `TG_TOKEN` and `TG_CHAT_ID` are set in `/secrets/backup.env`, `backup.sh`
+will send an HTML-formatted summary message to Telegram at the end of each run
+(both on success and on failure).
+
+The message includes:
+
+- Hostname
+- Disk checkup status (`[OK]` / `[FAIL]` / `[UNKNOWN]`)
+- Restic repository name and backup status (`[OK]` / `[FAIL]`)
+- Extracted restic statistics (`Files`, `Dirs`, `Added to the repository`)
+
+Example message:
+
+```html
+<b>Host:</b> VDS
+<b>Disk checkup:</b> [OK]
+<b>Repo 'vds' backup:</b> [OK]
+<b>Stats:</b>
+<pre>Files:           0 new,     0 changed,    37 unmodified
+Dirs:            0 new,     0 changed,    23 unmodified
+Added to the repository: 0 B   (0 B   stored)</pre>
+Backup completed successfully.
+```
 
 ---
 
