@@ -5,12 +5,13 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/env bash -c 'exec -a backup /usr/local/bin/backup.sh'
+ExecStart=/usr/bin/env bash /usr/local/bin/backup.sh
 Environment="BACKUP_CONF_PATH=/usr/local/etc/backup.conf"
 Environment="BACKUP_SECRETS_PATH=/usr/local/secrets/.backup.env"
 StandardOutput=journal
 StandardError=journal
 LogRateLimitIntervalSec=0
+SyslogIdentifier=backup
 
 [Install]
 WantedBy=multi-user.target
