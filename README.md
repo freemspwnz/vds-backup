@@ -17,7 +17,7 @@ The project is designed to be:
 
 - **Main script**: `bin/backup.sh`
   - Loads configuration from `/etc/backup.conf`.
-  - Loads secrets from `/secrets/backup.env`.
+  - Loads secrets from `/secrets/.backup.env`.
   - Creates a temporary directory for DB dumps and cleans it up via `trap` on
     any exit (success, error, or signal).
   - Auto-discovers SQLite databases under `DOCKER_DIR`.
@@ -36,10 +36,10 @@ The project is designed to be:
   - Debug messages are sent to journald only when `BACKUP_DEBUG=1`.
 
 - **SQLite discovery/dumps**:
-  - `lib/sqlite_discovery.sh`
+  - `lib/backup/sqlite_discovery.sh`
     - `sqlite_find_databases <root_dir>`:
       - Recursively finds `*.sqlite`, `*.db`, `*.sqlite3` under the given directory.
-  - `lib/sqlite_dump.sh`
+  - `lib/backup/sqlite_dump.sh`
     - `sqlite_dump_databases <db_list_file_or_dash> <tmp_dir> <timestamp>`:
       - Reads a list of database paths (from file or stdin).
       - Produces logical dumps via `sqlite3 ".dump"` into `tmp_dir`.
@@ -50,7 +50,7 @@ The project is designed to be:
   - Real file (on the host): `/etc/backup.conf`
 
 - **Secrets**:
-  - Real file (on the host): `/secrets/backup.env`
+  - Real file (on the host): `/secrets/.backup.env`
   - Used for `RESTIC_PASSWORD` and other sensitive values.
 
 - **systemd units**:
@@ -123,8 +123,8 @@ The project is designed to be:
    # TG_CHAT_ID="..."
    EOF
 
-   sudo chown root:root /secrets/backup.env
-   sudo chmod 600 /secrets/backup.env
+   sudo chown root:root /secrets/.backup.env
+   sudo chmod 600 /secrets/.backup.env
    ```
 
 ---
@@ -185,7 +185,7 @@ logic decoupled from discovery.
 
 ### Telegram Notifications
 
-If `TG_TOKEN` and `TG_CHAT_ID` are set in `/secrets/backup.env`, `backup.sh`
+If `TG_TOKEN` and `TG_CHAT_ID` are set in `/secrets/.backup.env`, `backup.sh`
 will send an HTML-formatted summary message to Telegram at the end of each run
 (both on success and on failure).
 
@@ -261,7 +261,7 @@ On the VDS host:
 3. **Move values into configuration files**:
 
    - `RESTIC_REPOSITORY` → `/etc/backup.conf`
-   - `RESTIC_PASSWORD`   → `/secrets/backup.env`
+   - `RESTIC_PASSWORD`   → `/secrets/.backup.env`
 
 After that, `backup.sh` will:
 
@@ -275,7 +275,7 @@ After that, `backup.sh` will:
 - All scripts use `set -euo pipefail` where appropriate.
 - Logging is centralized in `lib/logger.sh`:
   - If you add new modules, prefer calling `log_info/log_warn/log_error/log_debug`.
-- No credentials are hard-coded; all secrets must come from `/secrets/backup.env`
+- No credentials are hard-coded; all secrets must come from `/secrets/.backup.env`
   or the environment.
 
 For contributions, keep shell code POSIX-ish where possible, but it is acceptable

@@ -7,7 +7,7 @@ After=network-online.target
 Type=oneshot
 ExecStart=/usr/local/bin/backup.sh
 Environment="BACKUP_CONF_PATH=/etc/backup.conf"
-Environment="BACKUP_SECRETS_PATH=/secrets/backup.env"
+Environment="BACKUP_SECRETS_PATH=/secrets/.backup.env"
 StandardOutput=journal
 StandardError=journal
 
