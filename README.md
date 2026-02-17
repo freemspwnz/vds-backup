@@ -16,8 +16,8 @@ The project is designed to be:
 ### Architecture Overview
 
 - **Main script**: `bin/backup.sh`
-  - Loads configuration from `/etc/backup.conf`.
-  - Loads secrets from `/secrets/.backup.env`.
+  - Loads configuration from `/usr/local/etc/backup.conf`.
+  - Loads secrets from `/usr/local/secrets/.backup.env`.
   - Creates a temporary directory for DB dumps and cleans it up via `trap` on
     any exit (success, error, or signal).
   - Auto-discovers SQLite databases under `DOCKER_DIR`.
@@ -28,7 +28,7 @@ The project is designed to be:
     - any extra paths configured in `EXTRA_BACKUP_PATHS`.
   - Verifies restic repository accessibility before backup (`restic snapshots --last 1`).
 
-- **Logging**: `lib/logger.sh`
+- **Logging**: `/usr/local/lib/logger.sh`
   - Thin wrapper around the `logger` utility with levels:
     - `log_info`, `log_warn`, `log_error`, `log_debug`.
   - All messages are printed to stdout/stderr.
@@ -36,24 +36,24 @@ The project is designed to be:
   - Debug messages are sent to journald only when `BACKUP_DEBUG=1`.
 
 - **SQLite and PostgreSQL dumps**:
-  - `lib/backup/sqlite_discovery.sh`
+  - `/usr/local/lib/backup/sqlite_discovery.sh`
     - `sqlite_find_databases <root_dir>`:
       - Recursively finds `*.sqlite`, `*.db`, `*.sqlite3` under the given directory.
-  - `lib/backup/sqlite_dump.sh`
+  - `/usr/local/lib/backup/sqlite_dump.sh`
     - `sqlite_dump_databases <db_list_file_or_dash> <tmp_dir> <timestamp>`:
       - Reads a list of database paths (from file or stdin).
       - Produces logical dumps via `sqlite3 ".dump"` into `tmp_dir`.
       - Prints paths to successfully created dump files.
-  - `lib/backup/postgres_dump.sh`
+  - `/usr/local/lib/backup/postgres_dump.sh`
     - `backup_postgres_dump`:
       - Optionally creates a logical PostgreSQL dump from a Docker container using `pg_dumpall`.
 
 - **Configuration**:
-  - Example: `etc/backup.conf.example`
-  - Real file (on the host): `/etc/backup.conf`
+  - Example: `etc/backup.conf.example` (in the repo)
+  - Real file (on the host): `/usr/local/etc/backup.conf`
 
 - **Secrets**:
-  - Real file (on the host): `/secrets/.backup.env`
+  - Real file (on the host): `/usr/local/secrets/.backup.env`
   - Used for `RESTIC_PASSWORD` and other sensitive values.
 
 - **systemd units**:
@@ -95,12 +95,12 @@ The project is designed to be:
 3. **Install configuration**:
 
    ```bash
-   sudo mkdir -p /etc
-   sudo cp etc/backup.conf.example /etc/backup.conf
-   sudo chmod 640 /etc/backup.conf
+   sudo mkdir -p /usr/local/etc
+   sudo cp etc/backup.conf.example /usr/local/etc/backup.conf
+   sudo chmod 640 /usr/local/etc/backup.conf
    ```
 
-   Then edit `/etc/backup.conf` to match your environment:
+   Then edit `/usr/local/etc/backup.conf` to match your environment:
 
    - `DOCKER_DIR` – root of your docker stack (bind-mounted volumes, configs, etc.).
    - `RESTIC_REPOSITORY` – SFTP URL pointing to router SSD storage, e.g.:
@@ -120,8 +120,8 @@ The project is designed to be:
 4. **Install secrets file**:
 
    ```bash
-   sudo mkdir -p /secrets
-   sudo tee /secrets/.backup.env >/dev/null <<'EOF'
+   sudo mkdir -p /usr/local/secrets
+   sudo tee /usr/local/secrets/.backup.env >/dev/null <<'EOF'
    # Restic repository password
    RESTIC_PASSWORD="CHANGE_ME"
 
@@ -130,8 +130,8 @@ The project is designed to be:
    # TG_CHAT_ID="..."
    EOF
 
-   sudo chown root:root /secrets/.backup.env
-   sudo chmod 600 /secrets/.backup.env
+   sudo chown root:root /usr/local/secrets/.backup.env
+   sudo chmod 600 /usr/local/secrets/.backup.env
    ```
 
 ---
@@ -173,7 +173,7 @@ before installing it or by overriding it in `/etc/systemd/system/backup.timer.d/
 
 ### How Database Dumps Work (SQLite and PostgreSQL)
 
-1. `backup.sh` reads `DOCKER_DIR` from `/etc/backup.conf`.
+1. `backup.sh` reads `DOCKER_DIR` from `/usr/local/etc/backup.conf`.
 2. SQLite:
    - `sqlite_find_databases` scans `DOCKER_DIR` recursively for:
      - `*.sqlite`
@@ -198,7 +198,7 @@ logic decoupled from database engines and runtime state.
 
 ### Telegram Notifications
 
-If `TG_TOKEN` and `TG_CHAT_ID` are set in `/secrets/.backup.env`, `backup.sh`
+If `TG_TOKEN` and `TG_CHAT_ID` are set in `/usr/local/secrets/.backup.env`, `backup.sh`
 will send an HTML-formatted summary message to Telegram at the end of each run
 (both on success and on failure).
 
@@ -273,22 +273,22 @@ On the VDS host:
 
 3. **Move values into configuration files**:
 
-   - `RESTIC_REPOSITORY` → `/etc/backup.conf`
-   - `RESTIC_PASSWORD`   → `/secrets/.backup.env`
+   - `RESTIC_REPOSITORY` → `/usr/local/etc/backup.conf`
+   - `RESTIC_PASSWORD`   → `/usr/local/secrets/.backup.env`
 
 After that, `backup.sh` will:
 
 - ensure the repository is accessible (`restic snapshots --last 1`),
-- run `restic backup ...` with tags and excludes from `/etc/backup.conf`.
+- run `restic backup ...` with tags and excludes from `usr/local/etc/backup.conf`.
 
 ---
 
 ### Development Notes
 
 - All scripts use `set -euo pipefail` where appropriate.
-- Logging is centralized in `lib/logger.sh`:
+- Logging is centralized in `/usr/local/lib/logger.sh`:
   - If you add new modules, prefer calling `log_info/log_warn/log_error/log_debug`.
-- No credentials are hard-coded; all secrets must come from `/secrets/.backup.env`
+- No credentials are hard-coded; all secrets must come from `/usr/local/secrets/.backup.env`
   or the environment.
 
 For contributions, keep shell code POSIX-ish where possible, but it is acceptable

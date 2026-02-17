@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-# Example: /etc/backup.conf
-# Copy this file to /etc/backup.conf and adapt to your environment.
+# Example: /usr/local/etc/backup.conf
+# Copy this file to /usr/local/etc/backup.conf and adapt to your environment.
 
 # Path to docker stack root directory (configs and data live here)
 DOCKER_DIR="/root/docker"

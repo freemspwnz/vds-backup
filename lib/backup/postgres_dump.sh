@@ -5,7 +5,7 @@ set -euo pipefail
 # PostgreSQL dump helper.
 # Creates a logical dump from a PostgreSQL instance running in Docker.
 #
-# Configuration (from /etc/backup.conf):
+# Configuration (from /usr/local/etc/backup.conf):
 #   POSTGRES_DOCKER_CONTAINER  - name of the postgres container (optional)
 #   POSTGRES_DUMP_USER         - database user for pg_dumpall (default: postgres)
 #   POSTGRES_DUMP_ENABLED      - if set to "false", postgres dump is skipped

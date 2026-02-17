@@ -4,8 +4,8 @@ set -euo pipefail
 
 # Backup configuration loader.
 # Responsible for reading:
-#   - /etc/backup.conf      (Bash config with paths, arrays, etc.)
-#   - /secrets/.backup.env   (ENV-style secrets: RESTIC_PASSWORD, TG_TOKEN, ...)
+#   - /usr/local/etc/backup.conf        (Bash config with paths, arrays, etc.)
+#   - /usr/local/secrets/.backup.env    (ENV-style secrets: RESTIC_PASSWORD, TG_TOKEN, ...)
 #
 # We intentionally do NOT use the generic import_file/import_lib from the
 # reference implementation here because:
@@ -14,8 +14,8 @@ set -euo pipefail
 #   - For .env files we prefer to rely on Bash's own parser with `set -a`,
 #     which correctly handles quoting and special characters.
 
-BACKUP_CONF_PATH_DEFAULT="/etc/backup.conf"
-BACKUP_SECRETS_PATH_DEFAULT="/secrets/.backup.env"
+BACKUP_CONF_PATH_DEFAULT="/usr/local/etc/backup.conf"
+BACKUP_SECRETS_PATH_DEFAULT="/usr/local/secrets/.backup.env"
 
 backup_require_var() {
     local name="$1"
