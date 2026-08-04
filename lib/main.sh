@@ -356,7 +356,7 @@ backup_cmd_status() {
         log_info "SFTP: ${SFTP_USER}@${SFTP_HOST:-?} port=${SFTP_PORT}"
         set +e
         backup_restic_probe
-        backup_restic snapshots --last 5
+        backup_restic snapshots --latest 5
         set -e
     done < <(backup_foreach_job "${CMD_JOB_FILTER}" 1)
 }

@@ -22,7 +22,7 @@ backup_restic() {
 
 backup_restic_probe() {
     log_info "Probing repository: ${RESTIC_REPOSITORY}"
-    if ! backup_restic snapshots --last 1 >/dev/null 2>&1; then
+    if ! backup_restic snapshots --latest 1 >/dev/null 2>&1; then
         log_error "Repository not accessible or not initialized: ${RESTIC_REPOSITORY}"
         return 1
     fi
@@ -32,7 +32,7 @@ backup_restic_probe() {
 backup_restic_init() {
     backup_require_var RESTIC_PASSWORD
     backup_restic_env
-    if backup_restic snapshots --last 1 >/dev/null 2>&1; then
+    if backup_restic snapshots --latest 1 >/dev/null 2>&1; then
         log_info "Repository already initialized: ${RESTIC_REPOSITORY}"
         return 0
     fi
