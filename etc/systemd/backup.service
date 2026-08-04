@@ -1,0 +1,21 @@
+[Unit]
+Description=backup-utils (restic backup jobs)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/env bash /usr/local/bin/backup.sh run
+Environment=BACKUP_CONF_PATH=/usr/local/etc/backup/backup.conf
+Environment=ENV_FILE=/usr/local/etc/backup/.env
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=backup
+# Long SFTP backups; fail if hung beyond this
+TimeoutStartSec=6h
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+[Install]
+WantedBy=multi-user.target

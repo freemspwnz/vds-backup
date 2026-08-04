@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+
+# Example job: one restic repository = one backup set.
+# Copy to jobs.d/docker.conf (or any name) and edit.
+# Sourced as bash — only use trusted job files.
+
+JOB_NAME="docker"
+JOB_ENABLED=1
+
+# Path of the repository on the remote SFTP host (absolute)
+REPO_PATH="/srv/restic/docker"
+# Or full override:
+# RESTIC_REPOSITORY="sftp:backup@backup.example.com:/srv/restic/docker"
+
+# Optional: override global SFTP_* for this job
+# SFTP_HOST=...
+# SFTP_PORT=...
+# SFTP_IDENTITY=...
+
+# Optional: password for this repo only (else global RESTIC_PASSWORD from .env)
+# RESTIC_PASSWORD="job-specific-secret"
+# RESTIC_PASSWORD_FILE="/usr/local/etc/backup/secrets/docker.pass"
+
+BACKUP_PATHS=(
+  /root/docker
+)
+
+EXCLUDES=(
+  /root/docker/monitoring/loki/data
+  /root/docker/data/postgres/data
+)
+
+RESTIC_TAGS="scheduled,docker"
+# RESTIC_HOST="$(hostname)"
+
+SQLITE_DUMP_ENABLED=0
+# SQLITE_SCAN_ROOTS=(/root/docker)
+# SQLITE_DB_FILES=()
+
+POSTGRES_DUMP_ENABLED=0
+# POSTGRES_DOCKER_CONTAINER="postgres"
+# POSTGRES_DUMP_USER="postgres"
+
+# KEEP_DAILY=14
+# DO_FORGET_AFTER_BACKUP=1
+# DO_CHECK_AFTER_BACKUP=0
+# CHECK_WEEKDAY=7

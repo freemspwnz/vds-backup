@@ -1,28 +1,29 @@
 # Mac FS artifacts
 .DS_Store
 
-# Reference
-reference/
+# Secrets (also under /usr/local/etc/backup/.env when installed)
+.env
+.env.local
 
-# Dev docs
-docs/
-
-# Secrets
-secrets/
-*.env
-.env.*
+# Installed / local configs
+*.conf
+!*.conf.example
 
 # Logs
 var/log/
+*.log
 
-# Configs
-*.conf
-
-# Cache
-.cache/
-
-# Temp
+# Cache / temp
 tmp/
-
-# Cursor
+.cache/
 .cursor/
+.config/
+.local/
+
+# Shell history
+.bash_history
+.inputrc
+.profile
+
+# Dev docs
+docs/
