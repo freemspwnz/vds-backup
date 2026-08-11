@@ -58,6 +58,8 @@ backup_job_clear_trap() {
 
 # Acquire per-job flock and install cleanup trap.
 # Return codes: 0 = acquired, 1 = busy, 2 = error.
+# Busy policy (intentional): run/maintenance soft-skip; forget/check/init fail.
+# See README "Per-job locks (busy policy)".
 backup_job_with_lock_begin() {
     local lock_file lock_rc=0
     lock_file="$(backup_job_lock_file)"
@@ -160,6 +162,7 @@ backup_run_one_job() {
 
     local lock_rc=0 host
     backup_job_with_lock_begin || lock_rc=$?
+    # run: busy → soft-skip (overlapping timer is OK)
     if [[ "$lock_rc" -eq 1 ]]; then
         return 0
     fi
@@ -300,6 +303,7 @@ backup_cmd_forget() {
         backup_load_job_file "$line"
         lock_rc=0
         backup_job_with_lock_begin || lock_rc=$?
+        # forget: busy or lock error → fail (manual op must not silently no-op)
         if [[ "$lock_rc" -ne 0 ]]; then
             failed=1
             continue
@@ -322,6 +326,7 @@ backup_cmd_check() {
         backup_load_job_file "$line"
         lock_rc=0
         backup_job_with_lock_begin || lock_rc=$?
+        # check: busy or lock error → fail (manual op must not silently no-op)
         if [[ "$lock_rc" -ne 0 ]]; then
             failed=1
             continue
@@ -347,6 +352,7 @@ backup_cmd_maintenance() {
         backup_load_job_file "$line"
         lock_rc=0
         backup_job_with_lock_begin || lock_rc=$?
+        # maintenance: busy → soft-skip (same overlap policy as run)
         if [[ "$lock_rc" -eq 1 ]]; then
             continue
         fi
@@ -406,6 +412,7 @@ backup_cmd_init() {
         backup_load_job_file "$line"
         lock_rc=0
         backup_job_with_lock_begin || lock_rc=$?
+        # init: busy or lock error → fail (manual op must not silently no-op)
         if [[ "$lock_rc" -ne 0 ]]; then
             failed=1
             continue
@@ -461,6 +468,10 @@ Options:
   --job=NAME       Only this job (filename without .conf or JOB_NAME)
   --no-forget      Skip prune after backup / in maintenance skip nothing for forget
   --no-check       Skip check after backup / in maintenance
+
+Locks (per job, flock):
+  run, maintenance   if busy: soft-skip that job (overlap-safe)
+  forget, check, init  if busy: fail the command (no silent no-op)
 
 Config:
   BACKUP_CONF_PATH   default /usr/local/etc/backup/backup.conf

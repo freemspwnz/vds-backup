@@ -50,6 +50,17 @@ backup.sh dump|forget|check|maintenance|init|status [--job=NAME]
 - **run** (daily timer 04:00): dumps → backup → forget if enabled → check if `DO_CHECK_AFTER_BACKUP=1` or today is `CHECK_WEEKDAY` (default Sunday) → TG  
 - **maintenance**: manual forget + check → TG (no separate timer)
 
+### Per-job locks (busy policy)
+
+Each job uses a flock under `LOCK_DIR_BASE` so two processes cannot mutate the same repo at once. When the lock is **busy** (another run already holds it), behavior is intentional and differs by command:
+
+| Command | Lock busy | Why |
+|---------|-----------|-----|
+| `run`, `maintenance` | Soft-skip that job (exit 0 for that job; continue) | Timer/overlap-safe: a concurrent backup is enough; do not fail the whole schedule |
+| `forget`, `check`, `init` | Fail the command (non-zero exit) | Explicit/manual ops must not silently no-op |
+
+Lock **errors** (permissions, missing `flock`, etc.) always fail the command.
+
 ## Security notes
 
 - `backup.conf`, `jobs.d/*.conf`, and `.env` are **sourced as bash** — that is arbitrary code execution. Install only files you trust; prefer `root:root` and mode `640`/`600`.
