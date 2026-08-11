@@ -7,15 +7,26 @@
 JOB_NAME="docker"
 JOB_ENABLED=1
 
-# Path of the repository on the remote SFTP host (absolute)
-REPO_PATH="/srv/restic/docker"
-# Or full override:
-# RESTIC_REPOSITORY="sftp:backup@backup.example.com:/srv/restic/docker"
+# Inherit global BACKEND (sftp|rest), or override per job:
+# BACKEND=rest
 
-# Optional: override global SFTP_* for this job
+# Path of the repository on the remote (SFTP: absolute path; REST: URL path segment)
+REPO_PATH="/srv/restic/docker"
+# Or full override (BACKEND inferred from scheme):
+# RESTIC_REPOSITORY="sftp:backup@backup.example.com:/srv/restic/docker"
+# RESTIC_REPOSITORY="rest:https://backup.example.com:8000/docker/"
+
+# Optional: override global SFTP_* for this job (BACKEND=sftp)
 # SFTP_HOST=...
 # SFTP_PORT=...
 # SFTP_IDENTITY=...
+
+# Optional: override global REST_* for this job (BACKEND=rest)
+# REST_SCHEME=https
+# REST_HOST=...
+# REST_PORT=8000
+# REST_PATH_PREFIX=
+# RESTIC_CACERT=...
 
 # Optional: password for this repo only (else global RESTIC_PASSWORD from .env)
 # RESTIC_PASSWORD="job-specific-secret"

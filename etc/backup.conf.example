@@ -3,19 +3,30 @@
 # Global defaults for backup-utils (Linux client).
 # Install path: /usr/local/etc/backup/backup.conf
 # Per-repo jobs: /usr/local/etc/backup/jobs.d/*.conf
-# Secrets: /usr/local/etc/backup/.env (RESTIC_PASSWORD, TG_*) — job may override password.
+# Secrets: /usr/local/etc/backup/.env (RESTIC_PASSWORD, optional REST_USER/REST_PASS, TG_*)
 #
 # SECURITY: this file and jobs.d/*.conf are sourced as bash (arbitrary code).
 # Only install configs you trust; keep ownership root:root and mode 640.
 
 JOBS_DIR="/usr/local/etc/backup/jobs.d"
 
-# Default SFTP target (job may override)
+# Repository transport: sftp (default) or rest (restic REST server)
+BACKEND=sftp
+
+# Default SFTP target (job may override); used when BACKEND=sftp
 SFTP_HOST="backup.example.com"
 SFTP_PORT=22
 SFTP_USER="backup"
 SFTP_IDENTITY="/root/.ssh/id_ed25519"
 # SFTP_COMMAND="ssh -p 22 -i /root/.ssh/id_ed25519 -o BatchMode=yes backup@backup.example.com -s sftp"
+
+# Default REST server target; used when BACKEND=rest
+# REST_SCHEME=https
+# REST_HOST="backup.example.com"
+# REST_PORT=8000
+# Optional path prefix before REPO_PATH in the rest URL
+# REST_PATH_PREFIX=""
+# RESTIC_CACERT="/usr/local/etc/backup/rest-ca.pem"
 
 BACKUP_TMP_BASE_DIR="/var/tmp"
 LOCK_DIR_BASE="/var/run/backup"

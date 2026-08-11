@@ -361,8 +361,15 @@ backup_cmd_status() {
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
         backup_load_job_file "$line"
-        log_info "Job '${JOB_NAME}': repo=${RESTIC_REPOSITORY} enabled=${JOB_ENABLED}"
-        log_info "SFTP: ${SFTP_USER}@${SFTP_HOST:-?} port=${SFTP_PORT}"
+        log_info "Job '${JOB_NAME}': repo=${RESTIC_REPOSITORY} enabled=${JOB_ENABLED} backend=${BACKEND}"
+        case "${BACKEND}" in
+            rest)
+                log_info "REST: ${REST_SCHEME}://${REST_HOST:-?}:${REST_PORT}"
+                ;;
+            *)
+                log_info "SFTP: ${SFTP_USER}@${SFTP_HOST:-?} port=${SFTP_PORT}"
+                ;;
+        esac
         set +e
         backup_restic_probe
         backup_restic snapshots --latest 5

@@ -2,22 +2,48 @@
 
 set -euo pipefail
 
-# All restic ops go through SFTP (current job globals).
+# Restic ops for the current job (BACKEND=sftp|rest).
 
 RESTIC_BIN="${RESTIC_BIN:-restic}"
 
 backup_restic_env() {
     export RESTIC_PASSWORD
+    # Map our short names to restic's REST server auth env vars.
+    if [[ -n "${REST_USER:-}" ]]; then
+        export RESTIC_REST_USERNAME="${REST_USER}"
+    else
+        unset RESTIC_REST_USERNAME 2>/dev/null || true
+    fi
+    if [[ -n "${REST_PASS:-}" ]]; then
+        export RESTIC_REST_PASSWORD="${REST_PASS}"
+    else
+        unset RESTIC_REST_PASSWORD 2>/dev/null || true
+    fi
 }
 
 backup_restic() {
     # backup_restic <restic-subcommand-and-args...>
-    local sftp_cmd
-    sftp_cmd="$(backup_build_sftp_command)"
+    local -a opts=()
     backup_require_var RESTIC_PASSWORD
     backup_require_var RESTIC_REPOSITORY
     backup_restic_env
-    "${RESTIC_BIN}" -r "${RESTIC_REPOSITORY}" -o "sftp.command=${sftp_cmd}" "$@"
+
+    case "${BACKEND:-sftp}" in
+        sftp)
+            opts+=(-o "sftp.command=$(backup_build_sftp_command)")
+            ;;
+        rest)
+            if [[ -n "${RESTIC_CACERT:-}" ]]; then
+                opts+=(--cacert "${RESTIC_CACERT}")
+            fi
+            ;;
+        *)
+            log_error "Unknown BACKEND='${BACKEND}' (expected sftp|rest)"
+            return 1
+            ;;
+    esac
+
+    "${RESTIC_BIN}" -r "${RESTIC_REPOSITORY}" "${opts[@]}" "$@"
 }
 
 backup_restic_probe() {

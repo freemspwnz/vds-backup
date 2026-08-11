@@ -41,8 +41,11 @@ backup_load_global() {
     JOBS_DIR="${JOBS_DIR:-$JOBS_DIR_DEFAULT}"
     LOCK_DIR_BASE="${LOCK_DIR_BASE:-/var/run/backup}"
     RESTIC_BIN="${RESTIC_BIN:-restic}"
+    BACKEND="${BACKEND:-sftp}"
     SFTP_PORT="${SFTP_PORT:-22}"
     SFTP_USER="${SFTP_USER:-backup}"
+    REST_SCHEME="${REST_SCHEME:-https}"
+    REST_PORT="${REST_PORT:-8000}"
     BACKUP_TMP_BASE_DIR="${BACKUP_TMP_BASE_DIR:-/var/tmp}"
     KEEP_DAILY="${KEEP_DAILY:-7}"
     KEEP_WEEKLY="${KEEP_WEEKLY:-4}"
@@ -55,11 +58,17 @@ backup_load_global() {
     BACKUP_KEEP_DAILY_DEFAULT="${KEEP_DAILY}"
     BACKUP_KEEP_WEEKLY_DEFAULT="${KEEP_WEEKLY}"
     BACKUP_KEEP_MONTHLY_DEFAULT="${KEEP_MONTHLY}"
+    BACKUP_BACKEND_DEFAULT="${BACKEND}"
     BACKUP_SFTP_HOST_DEFAULT="${SFTP_HOST:-}"
     BACKUP_SFTP_PORT_DEFAULT="${SFTP_PORT}"
     BACKUP_SFTP_USER_DEFAULT="${SFTP_USER}"
     BACKUP_SFTP_IDENTITY_DEFAULT="${SFTP_IDENTITY:-}"
     BACKUP_SFTP_COMMAND_DEFAULT="${SFTP_COMMAND:-}"
+    BACKUP_REST_SCHEME_DEFAULT="${REST_SCHEME}"
+    BACKUP_REST_HOST_DEFAULT="${REST_HOST:-}"
+    BACKUP_REST_PORT_DEFAULT="${REST_PORT}"
+    BACKUP_REST_PATH_PREFIX_DEFAULT="${REST_PATH_PREFIX:-}"
+    BACKUP_RESTIC_CACERT_DEFAULT="${RESTIC_CACERT:-}"
     BACKUP_DO_FORGET_DEFAULT="${DO_FORGET_AFTER_BACKUP}"
     BACKUP_DO_CHECK_DEFAULT="${DO_CHECK_AFTER_BACKUP}"
     BACKUP_CHECK_WEEKDAY="${CHECK_WEEKDAY}"
@@ -68,12 +77,16 @@ backup_load_global() {
     ENV_FILE="$env_file"
     backup_load_env_file "$env_file"
     BACKUP_RESTIC_PASSWORD_DEFAULT="${RESTIC_PASSWORD:-}"
+    BACKUP_REST_USER_DEFAULT="${REST_USER:-}"
+    BACKUP_REST_PASS_DEFAULT="${REST_PASS:-}"
 }
 
 backup_clear_job_vars() {
     unset JOB_NAME JOB_ENABLED
     unset RESTIC_REPOSITORY REPO_PATH RESTIC_PASSWORD RESTIC_PASSWORD_FILE
-    unset SFTP_HOST SFTP_PORT SFTP_USER SFTP_IDENTITY SFTP_COMMAND
+    unset BACKEND SFTP_HOST SFTP_PORT SFTP_USER SFTP_IDENTITY SFTP_COMMAND
+    unset REST_SCHEME REST_HOST REST_PORT REST_PATH_PREFIX RESTIC_CACERT
+    unset REST_USER REST_PASS
     unset RESTIC_TAGS RESTIC_HOST
     unset SQLITE_DUMP_ENABLED POSTGRES_DUMP_ENABLED POSTGRES_DOCKER_CONTAINER POSTGRES_DUMP_USER
     unset DO_FORGET_AFTER_BACKUP DO_CHECK_AFTER_BACKUP
@@ -82,11 +95,17 @@ backup_clear_job_vars() {
     SQLITE_SCAN_ROOTS=()
     SQLITE_DB_FILES=()
 
+    BACKEND="${BACKUP_BACKEND_DEFAULT:-sftp}"
     SFTP_HOST="${BACKUP_SFTP_HOST_DEFAULT:-}"
     SFTP_PORT="${BACKUP_SFTP_PORT_DEFAULT:-22}"
     SFTP_USER="${BACKUP_SFTP_USER_DEFAULT:-backup}"
     SFTP_IDENTITY="${BACKUP_SFTP_IDENTITY_DEFAULT:-}"
     SFTP_COMMAND="${BACKUP_SFTP_COMMAND_DEFAULT:-}"
+    REST_SCHEME="${BACKUP_REST_SCHEME_DEFAULT:-https}"
+    REST_HOST="${BACKUP_REST_HOST_DEFAULT:-}"
+    REST_PORT="${BACKUP_REST_PORT_DEFAULT:-8000}"
+    REST_PATH_PREFIX="${BACKUP_REST_PATH_PREFIX_DEFAULT:-}"
+    RESTIC_CACERT="${BACKUP_RESTIC_CACERT_DEFAULT:-}"
     KEEP_DAILY="${BACKUP_KEEP_DAILY_DEFAULT:-7}"
     KEEP_WEEKLY="${BACKUP_KEEP_WEEKLY_DEFAULT:-4}"
     KEEP_MONTHLY="${BACKUP_KEEP_MONTHLY_DEFAULT:-3}"
@@ -94,6 +113,8 @@ backup_clear_job_vars() {
     DO_CHECK_AFTER_BACKUP="${BACKUP_DO_CHECK_DEFAULT:-0}"
     CHECK_WEEKDAY="${BACKUP_CHECK_WEEKDAY:-7}"
     RESTIC_PASSWORD="${BACKUP_RESTIC_PASSWORD_DEFAULT:-}"
+    REST_USER="${BACKUP_REST_USER_DEFAULT:-}"
+    REST_PASS="${BACKUP_REST_PASS_DEFAULT:-}"
     RESTIC_HOST="$(hostname 2>/dev/null || echo backup)"
     RESTIC_TAGS=""
     SQLITE_DUMP_ENABLED=0
@@ -124,20 +145,18 @@ backup_load_job_file() {
     [[ -z "${SQLITE_SCAN_ROOTS+set}" ]] && SQLITE_SCAN_ROOTS=()
     [[ -z "${SQLITE_DB_FILES+set}" ]] && SQLITE_DB_FILES=()
 
+    BACKEND="${BACKEND:-${BACKUP_BACKEND_DEFAULT:-sftp}}"
     SFTP_PORT="${SFTP_PORT:-${BACKUP_SFTP_PORT_DEFAULT:-22}}"
     SFTP_USER="${SFTP_USER:-${BACKUP_SFTP_USER_DEFAULT:-backup}}"
+    REST_SCHEME="${REST_SCHEME:-${BACKUP_REST_SCHEME_DEFAULT:-https}}"
+    REST_PORT="${REST_PORT:-${BACKUP_REST_PORT_DEFAULT:-8000}}"
 
     if [[ -n "${RESTIC_PASSWORD_FILE:-}" && -f "${RESTIC_PASSWORD_FILE}" ]]; then
         RESTIC_PASSWORD="$(<"${RESTIC_PASSWORD_FILE}")"
         RESTIC_PASSWORD="${RESTIC_PASSWORD//$'\n'/}"
     fi
 
-    if [[ -z "${RESTIC_REPOSITORY:-}" ]]; then
-        backup_require_var SFTP_HOST
-        backup_require_var REPO_PATH
-        RESTIC_REPOSITORY="sftp:${SFTP_USER}@${SFTP_HOST}:${REPO_PATH}"
-    fi
-
+    backup_resolve_repository
     backup_require_var RESTIC_PASSWORD
 
     if [[ "${#BACKUP_PATHS[@]}" -eq 0 ]]; then
@@ -187,6 +206,71 @@ backup_resolve_jobs() {
     fi
 
     printf '%s\n' "${found[@]}"
+}
+
+backup_infer_backend_from_repo() {
+    case "${RESTIC_REPOSITORY}" in
+        rest:*) BACKEND=rest ;;
+        sftp:*) BACKEND=sftp ;;
+    esac
+}
+
+backup_normalize_rest_repo_path() {
+    local path="${REPO_PATH#/}"
+    local prefix="${REST_PATH_PREFIX:-}"
+    prefix="${prefix#/}"
+    prefix="${prefix%/}"
+    if [[ -n "$prefix" ]]; then
+        path="${prefix}/${path}"
+    fi
+    path="${path#/}"
+    path="${path%/}"
+    if [[ -n "$path" ]]; then
+        printf '%s/\n' "$path"
+    else
+        printf '\n'
+    fi
+}
+
+backup_resolve_repository() {
+    if [[ -n "${RESTIC_REPOSITORY:-}" ]]; then
+        backup_infer_backend_from_repo
+        case "${BACKEND}" in
+            sftp|rest) ;;
+            *)
+                log_error "Unknown BACKEND='${BACKEND}' (expected sftp|rest)"
+                return 1
+                ;;
+        esac
+        return 0
+    fi
+
+    BACKEND="${BACKEND:-sftp}"
+    case "${BACKEND}" in
+        sftp)
+            backup_require_var SFTP_HOST
+            backup_require_var REPO_PATH
+            RESTIC_REPOSITORY="sftp:${SFTP_USER}@${SFTP_HOST}:${REPO_PATH}"
+            ;;
+        rest)
+            case "${REST_SCHEME}" in
+                http|https) ;;
+                *)
+                    log_error "REST_SCHEME must be http or https (got '${REST_SCHEME}')"
+                    return 1
+                    ;;
+            esac
+            backup_require_var REST_HOST
+            backup_require_var REPO_PATH
+            local rest_path
+            rest_path="$(backup_normalize_rest_repo_path)"
+            RESTIC_REPOSITORY="rest:${REST_SCHEME}://${REST_HOST}:${REST_PORT}/${rest_path}"
+            ;;
+        *)
+            log_error "Unknown BACKEND='${BACKEND}' (expected sftp|rest)"
+            return 1
+            ;;
+    esac
 }
 
 backup_build_sftp_command() {

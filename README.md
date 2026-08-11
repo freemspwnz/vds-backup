@@ -1,11 +1,11 @@
 # backup-utils
 
-Linux client for [restic](https://restic.net/) backups over SFTP to a remote host. One machine can run several **jobs** (separate repos, paths, dumps, passwords). The client itself runs backup, forget/prune, check, and optional Telegram reports.
+Linux client for [restic](https://restic.net/) backups to a remote store over **SFTP** or **REST server**. One machine can run several **jobs** (separate repos, paths, dumps, passwords). The client runs backup, forget/prune, check, and optional Telegram reports.
 
 ```text
 [Linux host]
   jobs.d/*.conf
-    dumps → restic backup -r sftp:user@remote:path
+    dumps → restic backup -r sftp:…  or  rest:https://…
     forget / prune / check (same host)
     Telegram
   systemd timer (daily)
@@ -13,7 +13,8 @@ Linux client for [restic](https://restic.net/) backups over SFTP to a remote hos
 
 ## Requirements
 
-- bash, restic, openssh-client, curl (Telegram)
+- bash, restic, curl (Telegram)
+- `openssh-client` when using `BACKEND=sftp`
 - `sqlite3` if SQLite dumps enabled
 - `docker` if Postgres dump via container enabled
 - systemd (for packaged timer)
@@ -31,11 +32,13 @@ Symlink: `/usr/local/bin/backup.sh` → checkout. Config and secrets under `/usr
 
 | File | Purpose |
 |------|---------|
-| `/usr/local/etc/backup/backup.conf` | Shared defaults (SFTP, retention, `CHECK_WEEKDAY`) |
+| `/usr/local/etc/backup/backup.conf` | Shared defaults (`BACKEND`, SFTP/REST, retention, `CHECK_WEEKDAY`) |
 | `/usr/local/etc/backup/jobs.d/*.conf` | One job = one restic repo + paths + dumps |
-| `/usr/local/etc/backup/.env` | Default `RESTIC_PASSWORD`, optional `TG_*` |
+| `/usr/local/etc/backup/.env` | Default `RESTIC_PASSWORD`, optional `REST_USER`/`REST_PASS`, `TG_*` |
 
-Per-job password (optional): `RESTIC_PASSWORD=...` or `RESTIC_PASSWORD_FILE=/path` in the job file.
+`BACKEND=sftp` (default) or `BACKEND=rest`. Jobs may override `BACKEND` and host fields. If `RESTIC_REPOSITORY` is set explicitly, it is used as-is and the scheme (`sftp:` / `rest:`) selects the transport.
+
+Per-job password (optional): `RESTIC_PASSWORD=...` or `RESTIC_PASSWORD_FILE=/path` in the job file. For rest-server HTTP auth, set `REST_USER` / `REST_PASS` in `.env` (or the job).
 
 ## Commands
 
@@ -50,7 +53,8 @@ backup.sh dump|forget|check|maintenance|init|status [--job=NAME]
 ## Security notes
 
 - `backup.conf`, `jobs.d/*.conf`, and `.env` are **sourced as bash** — that is arbitrary code execution. Install only files you trust; prefer `root:root` and mode `640`/`600`.
-- Key-only SFTP to the remote host; dedicated user; prefer restricted shell / chroot on the store side.
+- SFTP: key-only access; dedicated user; prefer restricted shell / chroot on the store side.
+- REST: prefer HTTPS + HTTP auth (`REST_USER` / `REST_PASS`); use `RESTIC_CACERT` for a private CA.
 - Do not commit `.env` or real `*.conf`.
 - When SQLite/Postgres dumps are enabled, dump failures abort the job (fail-closed).
 
