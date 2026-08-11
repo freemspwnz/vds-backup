@@ -56,6 +56,23 @@ backup_job_clear_trap() {
     trap - EXIT INT TERM HUP
 }
 
+# Acquire per-job flock and install cleanup trap.
+# Return codes: 0 = acquired, 1 = busy, 2 = error.
+backup_job_with_lock_begin() {
+    local lock_file lock_rc=0
+    lock_file="$(backup_job_lock_file)"
+    backup_lock_acquire "$lock_file" || lock_rc=$?
+    if [[ "$lock_rc" -eq 0 ]]; then
+        backup_job_install_trap
+    fi
+    return "$lock_rc"
+}
+
+backup_job_with_lock_end() {
+    backup_job_cleanup
+    backup_job_clear_trap
+}
+
 # Check after backup if DO_CHECK_AFTER_BACKUP=1, or today matches CHECK_WEEKDAY (1=Mon…7=Sun).
 backup_should_run_check() {
     if [[ "${FORCE_NO_CHECK:-0}" -eq 1 ]]; then
@@ -141,17 +158,14 @@ backup_run_one_job() {
         return 1
     fi
 
-    local lock_file host lock_rc=0
-    lock_file="$(backup_job_lock_file)"
-    backup_lock_acquire "$lock_file" || lock_rc=$?
+    local lock_rc=0 host
+    backup_job_with_lock_begin || lock_rc=$?
     if [[ "$lock_rc" -eq 1 ]]; then
         return 0
     fi
     if [[ "$lock_rc" -ne 0 ]]; then
         return 1
     fi
-
-    backup_job_install_trap
 
     host="$(hostname 2>/dev/null || echo backup)"
     log_info "=== Job '${JOB_NAME}' on ${host} ==="
@@ -223,8 +237,7 @@ backup_run_one_job() {
         backup_send_report "${JOB_NAME}" "$host" "[FAIL]" "backup OK, maintenance failed" "${stats}" "" "${extra}"
     fi
 
-    backup_job_cleanup
-    backup_job_clear_trap
+    backup_job_with_lock_end
     return "$rc"
 }
 
@@ -277,38 +290,52 @@ backup_cmd_dump() {
 backup_cmd_forget() {
     backup_parse_args "$@"
     backup_load_global
-    local line list enum_rc=0
+    local line list enum_rc=0 failed=0 lock_rc
     list="$(backup_collect_jobs "${CMD_JOB_FILTER}")" || enum_rc=$?
     backup_preflight "$list" || return 1
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
         backup_load_job_file "$line"
-        backup_restic_forget || true
+        lock_rc=0
+        backup_job_with_lock_begin || lock_rc=$?
+        if [[ "$lock_rc" -ne 0 ]]; then
+            failed=1
+            continue
+        fi
+        backup_restic_forget || failed=1
+        backup_job_with_lock_end
     done <<< "$list"
 
-    [[ "$enum_rc" -eq 0 ]]
+    [[ "$failed" -eq 0 && "$enum_rc" -eq 0 ]]
 }
 
 backup_cmd_check() {
     backup_parse_args "$@"
     backup_load_global
-    local line list enum_rc=0
+    local line list enum_rc=0 failed=0 lock_rc
     list="$(backup_collect_jobs "${CMD_JOB_FILTER}")" || enum_rc=$?
     backup_preflight "$list" || return 1
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
         backup_load_job_file "$line"
-        backup_restic_check || true
+        lock_rc=0
+        backup_job_with_lock_begin || lock_rc=$?
+        if [[ "$lock_rc" -ne 0 ]]; then
+            failed=1
+            continue
+        fi
+        backup_restic_check || failed=1
+        backup_job_with_lock_end
     done <<< "$list"
 
-    [[ "$enum_rc" -eq 0 ]]
+    [[ "$failed" -eq 0 && "$enum_rc" -eq 0 ]]
 }
 
 backup_cmd_maintenance() {
     backup_parse_args "$@"
     backup_load_global
 
-    local failed=0 line host extra forget_st check_st job_failed list enum_rc=0
+    local failed=0 line host extra forget_st check_st job_failed list enum_rc=0 lock_rc
     host="$(hostname 2>/dev/null || echo backup)"
 
     list="$(backup_collect_jobs "${CMD_JOB_FILTER}")" || enum_rc=$?
@@ -316,9 +343,8 @@ backup_cmd_maintenance() {
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
         backup_load_job_file "$line"
-        local lock_file lock_rc=0
-        lock_file="$(backup_job_lock_file)"
-        backup_lock_acquire "$lock_file" || lock_rc=$?
+        lock_rc=0
+        backup_job_with_lock_begin || lock_rc=$?
         if [[ "$lock_rc" -eq 1 ]]; then
             continue
         fi
@@ -326,7 +352,6 @@ backup_cmd_maintenance() {
             failed=1
             continue
         fi
-        backup_job_install_trap
 
         job_failed=0
         extra=""
@@ -362,8 +387,7 @@ backup_cmd_maintenance() {
         fi
         backup_send_report "${JOB_NAME}" "$host" "$st" "maintenance" "" "" "${extra}"
 
-        backup_job_cleanup
-        backup_job_clear_trap
+        backup_job_with_lock_end
     done <<< "$list"
 
     [[ "$failed" -eq 0 && "$enum_rc" -eq 0 ]]
@@ -372,16 +396,23 @@ backup_cmd_maintenance() {
 backup_cmd_init() {
     backup_parse_args "$@"
     backup_load_global
-    local line list enum_rc=0
+    local line list enum_rc=0 failed=0 lock_rc
     list="$(backup_collect_jobs "${CMD_JOB_FILTER}" 1)" || enum_rc=$?
     backup_preflight "$list" || return 1
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
         backup_load_job_file "$line"
-        backup_restic_init
+        lock_rc=0
+        backup_job_with_lock_begin || lock_rc=$?
+        if [[ "$lock_rc" -ne 0 ]]; then
+            failed=1
+            continue
+        fi
+        backup_restic_init || failed=1
+        backup_job_with_lock_end
     done <<< "$list"
 
-    [[ "$enum_rc" -eq 0 ]]
+    [[ "$failed" -eq 0 && "$enum_rc" -eq 0 ]]
 }
 
 backup_cmd_status() {
