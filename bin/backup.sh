@@ -40,8 +40,6 @@ source "${LIB_ROOT}/dumps.sh"
 # shellcheck source=/dev/null
 source "${LIB_ROOT}/restic.sh"
 # shellcheck source=/dev/null
-source "${LIB_ROOT}/report.sh"
-# shellcheck source=/dev/null
 source "${LIB_ROOT}/main.sh"
 
 backup_main "$@"
