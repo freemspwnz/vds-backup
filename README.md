@@ -26,7 +26,7 @@ cd /usr/local/src/backup-utils   # or any stable path
 sudo bash install.sh
 ```
 
-Symlink: `/usr/local/bin/backup.sh` → checkout. Config and secrets under `/usr/local/etc/backup/`. Update: `git pull` in the checkout. Remove: `sudo ./uninstall.sh`.
+Symlink: `/usr/local/bin/backup.sh` → checkout. Config and secrets under `/usr/local/etc/backup/`. Update: `git pull` in the checkout. Remove: `sudo ./uninstall.sh` (prompts before deleting secrets; `sudo ./uninstall.sh --yes` to skip).
 
 ## Configuration
 

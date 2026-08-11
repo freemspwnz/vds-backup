@@ -5,7 +5,7 @@
 # Does NOT touch: git checkout, restic binary, remote restic repo, SSH keys,
 # Docker data, or parent dirs like /usr/local/{bin,etc}.
 #
-# Usage: sudo ./uninstall.sh
+# Usage: sudo ./uninstall.sh [--yes|-y]
 
 set -euo pipefail
 
@@ -13,23 +13,58 @@ BIN_DIR="/usr/local/bin"
 ETC_BACKUP="/usr/local/etc/backup"
 SYSTEMD_DIR="/etc/systemd/system"
 LOCK_DIR_BASE="/var/run/backup"
+YES=0
 
 usage() {
-    cat <<'EOF'
-Usage: sudo ./uninstall.sh
+    cat <<EOF
+Usage: sudo ./uninstall.sh [--yes|-y]
 
 Stops timers/services and removes install.sh artifacts.
+Without --yes, asks for confirmation before deleting anything
+(especially ${ETC_BACKUP}/.env secrets).
 EOF
 }
 
-if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
-    usage
-    exit 0
-fi
+for arg in "$@"; do
+    case "$arg" in
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        --yes|-y)
+            YES=1
+            ;;
+        *)
+            echo "Unknown option: ${arg}" >&2
+            usage
+            exit 1
+            ;;
+    esac
+done
 
 if [[ "$(id -u)" -ne 0 ]]; then
     echo "Must run as root (e.g. sudo ./uninstall.sh)" >&2
     exit 1
+fi
+
+if [[ "$YES" -ne 1 ]]; then
+    echo "This will remove:"
+    echo "  - ${BIN_DIR}/backup.sh symlink"
+    echo "  - systemd backup.timer / backup.service (and legacy maintenance units)"
+    echo "  - ${ETC_BACKUP} (configs, jobs, and secrets)"
+    if [[ -f "${ETC_BACKUP}/.env" ]]; then
+        echo "WARN: ${ETC_BACKUP}/.env exists and will be permanently deleted (RESTIC_PASSWORD / REST_PASS / TG_*)."
+    else
+        echo "Note: no ${ETC_BACKUP}/.env found right now; directory will still be removed if present."
+    fi
+    printf "Type 'yes' to continue: "
+    read -r ans
+    if [[ "$ans" != "yes" ]]; then
+        echo "Aborted. Nothing was removed."
+        exit 1
+    fi
+elif [[ -f "${ETC_BACKUP}/.env" ]]; then
+    echo "WARN: removing ${ETC_BACKUP}/.env (secrets) because --yes was passed."
 fi
 
 echo "Uninstalling backup-utils…"

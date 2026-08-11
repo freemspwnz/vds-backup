@@ -66,7 +66,13 @@ for ex in "${REPO_ROOT}/etc/jobs.d/"*.conf.example; do
         echo "Installed example ${JOBS_DIR}/$(basename "$ex")"
     fi
 done
+active_jobs=("${JOBS_DIR}"/*.conf)
 shopt -u nullglob
+
+if [[ "${#active_jobs[@]}" -eq 0 ]]; then
+    echo "WARN: no active jobs in ${JOBS_DIR} — only *.conf.example are present."
+    echo "      backup.sh ignores *.conf.example until you copy one to *.conf."
+fi
 
 # Secrets: prefer /usr/local/etc/backup/.env; migrate from checkout if needed.
 if [[ ! -f "${ETC_BACKUP}/.env" ]]; then
@@ -101,7 +107,7 @@ echo ""
 echo "Done. Update code: cd ${REPO_ROOT} && git pull"
 echo "Next:"
 echo "  1) Edit ${ETC_BACKUP}/backup.conf"
-echo "  2) Copy jobs.d/*.conf.example → *.conf and edit"
+echo "  2) cp ${JOBS_DIR}/home.conf.example ${JOBS_DIR}/home.conf  # then edit"
 echo "  3) Edit ${ETC_BACKUP}/.env (RESTIC_PASSWORD, optional REST_USER/REST_PASS, TG_*)"
 echo "  4) Set BACKEND=sftp|rest in backup.conf (and REST_* or SFTP_* as needed)"
 echo "  5) backup.sh init --job=NAME && backup.sh status --job=NAME"
