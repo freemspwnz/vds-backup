@@ -234,6 +234,7 @@ backup_cmd_run() {
 
     local failed=0 line list enum_rc=0
     list="$(backup_collect_jobs "${CMD_JOB_FILTER}")" || enum_rc=$?
+    backup_preflight "$list" || return 1
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
         if ! backup_run_one_job "$line"; then
@@ -250,6 +251,7 @@ backup_cmd_dump() {
 
     local line kept_dir list enum_rc=0
     list="$(backup_collect_jobs "${CMD_JOB_FILTER}")" || enum_rc=$?
+    backup_preflight "$list" || return 1
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
         backup_load_job_file "$line"
@@ -277,6 +279,7 @@ backup_cmd_forget() {
     backup_load_global
     local line list enum_rc=0
     list="$(backup_collect_jobs "${CMD_JOB_FILTER}")" || enum_rc=$?
+    backup_preflight "$list" || return 1
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
         backup_load_job_file "$line"
@@ -291,6 +294,7 @@ backup_cmd_check() {
     backup_load_global
     local line list enum_rc=0
     list="$(backup_collect_jobs "${CMD_JOB_FILTER}")" || enum_rc=$?
+    backup_preflight "$list" || return 1
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
         backup_load_job_file "$line"
@@ -308,6 +312,7 @@ backup_cmd_maintenance() {
     host="$(hostname 2>/dev/null || echo backup)"
 
     list="$(backup_collect_jobs "${CMD_JOB_FILTER}")" || enum_rc=$?
+    backup_preflight "$list" || return 1
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
         backup_load_job_file "$line"
@@ -369,6 +374,7 @@ backup_cmd_init() {
     backup_load_global
     local line list enum_rc=0
     list="$(backup_collect_jobs "${CMD_JOB_FILTER}" 1)" || enum_rc=$?
+    backup_preflight "$list" || return 1
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
         backup_load_job_file "$line"
@@ -383,6 +389,7 @@ backup_cmd_status() {
     backup_load_global
     local line list enum_rc=0
     list="$(backup_collect_jobs "${CMD_JOB_FILTER}" 1)" || enum_rc=$?
+    backup_preflight "$list" || return 1
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
         backup_load_job_file "$line"
