@@ -1,0 +1,24 @@
+name: ShellCheck
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ShellCheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Run ShellCheck
+        run: |
+          # Entry point with -x follows sourced lib/*.sh (avoids false SC2034 across files).
+          shellcheck -x bin/backup.sh
+          shellcheck install.sh uninstall.sh
+          # Example configs are sourced as bash; unused-looking assigns are intentional.
+          shellcheck -e SC2034 etc/backup.conf.example etc/jobs.d/*.conf.example
