@@ -174,67 +174,69 @@ backup_run_one_job() {
     FORGET_REPORT_STATS=""
     CHECK_REPORT_STATS=""
 
+    local rc=0 stats raw_tail extra="" forget_st="" check_st=""
+
     if backup_dumps_needed; then
         backup_prepare_tmp
         if ! backup_run_dumps "${BACKUP_TMP_DIR}" "${BACKUP_TIMESTAMP}"; then
             log_error "Job '${JOB_NAME}' dumps failed."
             backup_send_report "${JOB_NAME}" "$host" "[FAIL]" "dumps failed" "n/a" ""
-            return 1
+            rc=1
         fi
     fi
 
-    if ! backup_restic_probe; then
+    if [[ "$rc" -eq 0 ]] && ! backup_restic_probe; then
         backup_send_report "${JOB_NAME}" "$host" "[FAIL]" "repository not accessible" "n/a" ""
-        return 1
-    fi
-
-    backup_build_backup_args
-
-    set +e
-    backup_restic_backup "${BACKUP_RESTIC_ARGS[@]}" "${BACKUP_TARGETS[@]}"
-    local rc=$?
-    set -e
-
-    local stats raw_tail extra="" forget_st="" check_st=""
-    stats="$(backup_extract_restic_stats)"
-
-    if [[ "$rc" -ne 0 ]]; then
-        raw_tail="$(backup_restic_log_tail || true)"
-        log_error "Job '${JOB_NAME}' backup failed (exit ${rc})."
-        backup_send_report "${JOB_NAME}" "$host" "[FAIL]" "backup failed" "${stats}" "${raw_tail}"
-        return 1
-    fi
-
-    log_info "Job '${JOB_NAME}' backup OK."
-
-    if [[ "${FORCE_NO_FORGET}" -eq 0 && "${DO_FORGET_AFTER_BACKUP}" == "1" ]]; then
-        if backup_restic_forget; then
-            forget_st="[OK]"
-        else
-            forget_st="[FAIL]"
-            rc=1
-        fi
-        extra+="Prune: <b>${forget_st}</b>
-<pre>$(tg_html_escape "${FORGET_REPORT_STATS:-}")</pre>
-"
-    fi
-
-    if backup_should_run_check; then
-        if backup_restic_check; then
-            check_st="[OK]"
-        else
-            check_st="[FAIL]"
-            rc=1
-        fi
-        extra+="Check: <b>${check_st}</b>
-<pre>$(tg_html_escape "${CHECK_REPORT_STATS:-}")</pre>
-"
+        rc=1
     fi
 
     if [[ "$rc" -eq 0 ]]; then
-        backup_send_report "${JOB_NAME}" "$host" "[OK]" "completed successfully" "${stats}" "" "${extra}"
-    else
-        backup_send_report "${JOB_NAME}" "$host" "[FAIL]" "backup OK, maintenance failed" "${stats}" "" "${extra}"
+        backup_build_backup_args
+
+        set +e
+        backup_restic_backup "${BACKUP_RESTIC_ARGS[@]}" "${BACKUP_TARGETS[@]}"
+        rc=$?
+        set -e
+
+        stats="$(backup_extract_restic_stats)"
+
+        if [[ "$rc" -ne 0 ]]; then
+            raw_tail="$(backup_restic_log_tail || true)"
+            log_error "Job '${JOB_NAME}' backup failed (exit ${rc})."
+            backup_send_report "${JOB_NAME}" "$host" "[FAIL]" "backup failed" "${stats}" "${raw_tail}"
+        else
+            log_info "Job '${JOB_NAME}' backup OK."
+
+            if [[ "${FORCE_NO_FORGET}" -eq 0 && "${DO_FORGET_AFTER_BACKUP}" == "1" ]]; then
+                if backup_restic_forget; then
+                    forget_st="[OK]"
+                else
+                    forget_st="[FAIL]"
+                    rc=1
+                fi
+                extra+="Prune: <b>${forget_st}</b>
+<pre>$(tg_html_escape "${FORGET_REPORT_STATS:-}")</pre>
+"
+            fi
+
+            if backup_should_run_check; then
+                if backup_restic_check; then
+                    check_st="[OK]"
+                else
+                    check_st="[FAIL]"
+                    rc=1
+                fi
+                extra+="Check: <b>${check_st}</b>
+<pre>$(tg_html_escape "${CHECK_REPORT_STATS:-}")</pre>
+"
+            fi
+
+            if [[ "$rc" -eq 0 ]]; then
+                backup_send_report "${JOB_NAME}" "$host" "[OK]" "completed successfully" "${stats}" "" "${extra}"
+            else
+                backup_send_report "${JOB_NAME}" "$host" "[FAIL]" "backup OK, maintenance failed" "${stats}" "" "${extra}"
+            fi
+        fi
     fi
 
     backup_job_with_lock_end
