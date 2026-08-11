@@ -31,7 +31,7 @@ backup_preflight() {
         backup_require_cmd curl || missing=1
     fi
 
-    if [[ "${BACKUP_BACKEND_DEFAULT:-${BACKEND:-sftp}}" == "sftp" ]]; then
+    if [[ "${BACKUP_SNAP_BACKEND:-${BACKEND:-sftp}}" == "sftp" ]]; then
         need_ssh=1
     elif [[ -n "$job_list" ]]; then
         while IFS= read -r line; do

@@ -8,6 +8,32 @@ BACKUP_CONF_DEFAULT="/usr/local/etc/backup/backup.conf"
 JOBS_DIR_DEFAULT="/usr/local/etc/backup/jobs.d"
 ENV_FILE_DEFAULT="/usr/local/etc/backup/.env"
 
+# Vars each job starts from (global/env); job file may override.
+BACKUP_INHERIT_VARS=(
+    BACKEND
+    SFTP_HOST SFTP_PORT SFTP_USER SFTP_IDENTITY SFTP_COMMAND
+    REST_SCHEME REST_HOST REST_PORT REST_PATH_PREFIX RESTIC_CACERT
+    REST_USER REST_PASS RESTIC_PASSWORD
+    KEEP_DAILY KEEP_WEEKLY KEEP_MONTHLY
+    DO_FORGET_AFTER_BACKUP DO_CHECK_AFTER_BACKUP CHECK_WEEKDAY
+)
+
+# In-memory snapshot as BACKUP_SNAP_<VAR> (bash 3.2-friendly; no assoc arrays).
+backup_snapshot_globals() {
+    local v
+    for v in "${BACKUP_INHERIT_VARS[@]}"; do
+        printf -v "BACKUP_SNAP_${v}" '%s' "${!v-}"
+    done
+}
+
+backup_restore_globals() {
+    local v snap
+    for v in "${BACKUP_INHERIT_VARS[@]}"; do
+        snap="BACKUP_SNAP_${v}"
+        printf -v "$v" '%s' "${!snap-}"
+    done
+}
+
 backup_resolve_env_file() {
     if [[ -n "${ENV_FILE:-}" ]]; then
         printf '%s\n' "$ENV_FILE"
@@ -55,66 +81,25 @@ backup_load_global() {
     # ISO weekday: 1=Mon … 7=Sun. 0/empty = no weekday schedule.
     CHECK_WEEKDAY="${CHECK_WEEKDAY:-7}"
 
-    BACKUP_KEEP_DAILY_DEFAULT="${KEEP_DAILY}"
-    BACKUP_KEEP_WEEKLY_DEFAULT="${KEEP_WEEKLY}"
-    BACKUP_KEEP_MONTHLY_DEFAULT="${KEEP_MONTHLY}"
-    BACKUP_BACKEND_DEFAULT="${BACKEND}"
-    BACKUP_SFTP_HOST_DEFAULT="${SFTP_HOST:-}"
-    BACKUP_SFTP_PORT_DEFAULT="${SFTP_PORT}"
-    BACKUP_SFTP_USER_DEFAULT="${SFTP_USER}"
-    BACKUP_SFTP_IDENTITY_DEFAULT="${SFTP_IDENTITY:-}"
-    BACKUP_SFTP_COMMAND_DEFAULT="${SFTP_COMMAND:-}"
-    BACKUP_REST_SCHEME_DEFAULT="${REST_SCHEME}"
-    BACKUP_REST_HOST_DEFAULT="${REST_HOST:-}"
-    BACKUP_REST_PORT_DEFAULT="${REST_PORT}"
-    BACKUP_REST_PATH_PREFIX_DEFAULT="${REST_PATH_PREFIX:-}"
-    BACKUP_RESTIC_CACERT_DEFAULT="${RESTIC_CACERT:-}"
-    BACKUP_DO_FORGET_DEFAULT="${DO_FORGET_AFTER_BACKUP}"
-    BACKUP_DO_CHECK_DEFAULT="${DO_CHECK_AFTER_BACKUP}"
-    BACKUP_CHECK_WEEKDAY="${CHECK_WEEKDAY}"
-
     env_file="$(backup_resolve_env_file)"
     ENV_FILE="$env_file"
     backup_load_env_file "$env_file"
-    BACKUP_RESTIC_PASSWORD_DEFAULT="${RESTIC_PASSWORD:-}"
-    BACKUP_REST_USER_DEFAULT="${REST_USER:-}"
-    BACKUP_REST_PASS_DEFAULT="${REST_PASS:-}"
+    backup_snapshot_globals
 }
 
+# Reset to global snapshot and clear per-job-only state before sourcing a job file.
 backup_clear_job_vars() {
     unset JOB_NAME JOB_ENABLED
-    unset RESTIC_REPOSITORY REPO_PATH RESTIC_PASSWORD RESTIC_PASSWORD_FILE
-    unset BACKEND SFTP_HOST SFTP_PORT SFTP_USER SFTP_IDENTITY SFTP_COMMAND
-    unset REST_SCHEME REST_HOST REST_PORT REST_PATH_PREFIX RESTIC_CACERT
-    unset REST_USER REST_PASS
+    unset RESTIC_REPOSITORY REPO_PATH RESTIC_PASSWORD_FILE
     unset RESTIC_TAGS RESTIC_HOST
     unset SQLITE_DUMP_ENABLED POSTGRES_DUMP_ENABLED POSTGRES_DOCKER_CONTAINER POSTGRES_DUMP_USER
-    unset DO_FORGET_AFTER_BACKUP DO_CHECK_AFTER_BACKUP
     BACKUP_PATHS=()
     EXCLUDES=()
     SQLITE_SCAN_ROOTS=()
     SQLITE_DB_FILES=()
 
-    BACKEND="${BACKUP_BACKEND_DEFAULT:-sftp}"
-    SFTP_HOST="${BACKUP_SFTP_HOST_DEFAULT:-}"
-    SFTP_PORT="${BACKUP_SFTP_PORT_DEFAULT:-22}"
-    SFTP_USER="${BACKUP_SFTP_USER_DEFAULT:-backup}"
-    SFTP_IDENTITY="${BACKUP_SFTP_IDENTITY_DEFAULT:-}"
-    SFTP_COMMAND="${BACKUP_SFTP_COMMAND_DEFAULT:-}"
-    REST_SCHEME="${BACKUP_REST_SCHEME_DEFAULT:-https}"
-    REST_HOST="${BACKUP_REST_HOST_DEFAULT:-}"
-    REST_PORT="${BACKUP_REST_PORT_DEFAULT:-8000}"
-    REST_PATH_PREFIX="${BACKUP_REST_PATH_PREFIX_DEFAULT:-}"
-    RESTIC_CACERT="${BACKUP_RESTIC_CACERT_DEFAULT:-}"
-    KEEP_DAILY="${BACKUP_KEEP_DAILY_DEFAULT:-7}"
-    KEEP_WEEKLY="${BACKUP_KEEP_WEEKLY_DEFAULT:-4}"
-    KEEP_MONTHLY="${BACKUP_KEEP_MONTHLY_DEFAULT:-3}"
-    DO_FORGET_AFTER_BACKUP="${BACKUP_DO_FORGET_DEFAULT:-1}"
-    DO_CHECK_AFTER_BACKUP="${BACKUP_DO_CHECK_DEFAULT:-0}"
-    CHECK_WEEKDAY="${BACKUP_CHECK_WEEKDAY:-7}"
-    RESTIC_PASSWORD="${BACKUP_RESTIC_PASSWORD_DEFAULT:-}"
-    REST_USER="${BACKUP_REST_USER_DEFAULT:-}"
-    REST_PASS="${BACKUP_REST_PASS_DEFAULT:-}"
+    backup_restore_globals
+
     RESTIC_HOST="$(hostname 2>/dev/null || echo backup)"
     RESTIC_TAGS=""
     SQLITE_DUMP_ENABLED=0
@@ -145,12 +130,6 @@ backup_load_job_file() {
     [[ -z "${SQLITE_SCAN_ROOTS+set}" ]] && SQLITE_SCAN_ROOTS=()
     [[ -z "${SQLITE_DB_FILES+set}" ]] && SQLITE_DB_FILES=()
 
-    BACKEND="${BACKEND:-${BACKUP_BACKEND_DEFAULT:-sftp}}"
-    SFTP_PORT="${SFTP_PORT:-${BACKUP_SFTP_PORT_DEFAULT:-22}}"
-    SFTP_USER="${SFTP_USER:-${BACKUP_SFTP_USER_DEFAULT:-backup}}"
-    REST_SCHEME="${REST_SCHEME:-${BACKUP_REST_SCHEME_DEFAULT:-https}}"
-    REST_PORT="${REST_PORT:-${BACKUP_REST_PORT_DEFAULT:-8000}}"
-
     if [[ -n "${RESTIC_PASSWORD_FILE:-}" && -f "${RESTIC_PASSWORD_FILE}" ]]; then
         RESTIC_PASSWORD="$(<"${RESTIC_PASSWORD_FILE}")"
         RESTIC_PASSWORD="${RESTIC_PASSWORD//$'\n'/}"
@@ -158,11 +137,6 @@ backup_load_job_file() {
 
     backup_resolve_repository
     backup_require_var RESTIC_PASSWORD
-
-    if [[ "${#BACKUP_PATHS[@]}" -eq 0 ]]; then
-        # allow empty paths only for forget/check/status/init
-        :
-    fi
 }
 
 backup_resolve_jobs() {
