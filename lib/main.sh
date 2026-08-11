@@ -141,9 +141,9 @@ backup_run_one_job() {
         return 1
     fi
 
-    local lock_dir host lock_rc=0
-    lock_dir="$(backup_job_lock_dir)"
-    backup_lock_acquire "$lock_dir" || lock_rc=$?
+    local lock_file host lock_rc=0
+    lock_file="$(backup_job_lock_file)"
+    backup_lock_acquire "$lock_file" || lock_rc=$?
     if [[ "$lock_rc" -eq 1 ]]; then
         return 0
     fi
@@ -311,9 +311,9 @@ backup_cmd_maintenance() {
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
         backup_load_job_file "$line"
-        local lock_dir lock_rc=0
-        lock_dir="$(backup_job_lock_dir)"
-        backup_lock_acquire "$lock_dir" || lock_rc=$?
+        local lock_file lock_rc=0
+        lock_file="$(backup_job_lock_file)"
+        backup_lock_acquire "$lock_file" || lock_rc=$?
         if [[ "$lock_rc" -eq 1 ]]; then
             continue
         fi

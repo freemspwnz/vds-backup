@@ -289,6 +289,6 @@ backup_build_sftp_command() {
     printf '%s\n' "$cmd"
 }
 
-backup_job_lock_dir() {
-    printf '%s/%s.lock.d' "${LOCK_DIR_BASE:-/var/run/backup}" "${JOB_NAME}"
+backup_job_lock_file() {
+    printf '%s/%s.lock' "${LOCK_DIR_BASE:-/var/run/backup}" "${JOB_NAME}"
 }

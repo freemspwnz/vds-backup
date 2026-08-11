@@ -68,7 +68,7 @@ if [[ -d "${ETC_BACKUP}" ]]; then
     echo "Removed ${ETC_BACKUP}"
 fi
 
-# Leftover lock dirs and temp dump dirs from crashed runs
+# Leftover lock files/dirs and temp dump dirs from crashed runs
 if [[ -d "${LOCK_DIR_BASE}" ]]; then
     rm -rf -- "${LOCK_DIR_BASE}"
 fi
