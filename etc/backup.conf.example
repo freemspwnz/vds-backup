@@ -17,8 +17,8 @@ BACKEND=sftp
 SFTP_HOST="backup.example.com"
 SFTP_PORT=22
 SFTP_USER="backup"
-SFTP_IDENTITY="/root/.ssh/id_ed25519"
-# SFTP_COMMAND="ssh -p 22 -i /root/.ssh/id_ed25519 -o BatchMode=yes backup@backup.example.com -s sftp"
+SFTP_IDENTITY="/home/user/.ssh/id_ed25519"
+# SFTP_COMMAND="ssh -p 22 -i /home/user/.ssh/id_ed25519 -o BatchMode=yes backup@backup.example.com -s sftp"
 
 # Default REST server target; used when BACKEND=rest
 # REST_SCHEME=https

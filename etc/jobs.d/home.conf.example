@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
 
 # Example job: one restic repository = one backup set.
-# Copy to jobs.d/docker.conf (or any name) and edit.
+# Copy to jobs.d/home.conf (or any name) and edit.
 # Sourced as bash — only use trusted job files.
 
-JOB_NAME="docker"
+JOB_NAME="home"
 JOB_ENABLED=1
 
 # Inherit global BACKEND (sftp|rest), or override per job:
 # BACKEND=rest
 
 # Path of the repository on the remote (SFTP: absolute path; REST: URL path segment)
-REPO_PATH="/srv/restic/docker"
+REPO_PATH="/srv/restic/home"
 # Or full override (BACKEND inferred from scheme):
-# RESTIC_REPOSITORY="sftp:backup@backup.example.com:/srv/restic/docker"
-# RESTIC_REPOSITORY="rest:https://backup.example.com:8000/docker/"
+# RESTIC_REPOSITORY="sftp:backup@backup.example.com:/srv/restic/home"
+# RESTIC_REPOSITORY="rest:https://backup.example.com:8000/home/"
 
 # Optional: override global SFTP_* for this job (BACKEND=sftp)
 # SFTP_HOST=...
@@ -30,22 +30,23 @@ REPO_PATH="/srv/restic/docker"
 
 # Optional: password for this repo only (else global RESTIC_PASSWORD from .env)
 # RESTIC_PASSWORD="job-specific-secret"
-# RESTIC_PASSWORD_FILE="/usr/local/etc/backup/secrets/docker.pass"
+# RESTIC_PASSWORD_FILE="/usr/local/etc/backup/secrets/home.pass"
 
 BACKUP_PATHS=(
-  /root/docker
+  /home/user/data
+  /home/user/documents
 )
 
 EXCLUDES=(
-  /root/docker/monitoring/loki/data
-  /root/docker/data/postgres/data
+  /home/user/data/cache
+  /home/user/data/tmp
 )
 
-RESTIC_TAGS="scheduled,docker"
+RESTIC_TAGS="scheduled,home"
 # RESTIC_HOST="$(hostname)"
 
 SQLITE_DUMP_ENABLED=0
-# SQLITE_SCAN_ROOTS=(/root/docker)
+# SQLITE_SCAN_ROOTS=(/home/user/data)
 # SQLITE_DB_FILES=()
 
 POSTGRES_DUMP_ENABLED=0
