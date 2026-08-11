@@ -215,7 +215,7 @@ backup_run_one_job() {
             rc=1
         fi
         extra+="Prune: <b>${forget_st}</b>
-<pre>${FORGET_REPORT_STATS:-}</pre>
+<pre>$(tg_html_escape "${FORGET_REPORT_STATS:-}")</pre>
 "
     fi
 
@@ -227,7 +227,7 @@ backup_run_one_job() {
             rc=1
         fi
         extra+="Check: <b>${check_st}</b>
-<pre>${CHECK_REPORT_STATS:-}</pre>
+<pre>$(tg_html_escape "${CHECK_REPORT_STATS:-}")</pre>
 "
     fi
 
@@ -365,7 +365,7 @@ backup_cmd_maintenance() {
             job_failed=1
         fi
         extra+="Prune: <b>${forget_st}</b>
-<pre>${FORGET_REPORT_STATS:-}</pre>
+<pre>$(tg_html_escape "${FORGET_REPORT_STATS:-}")</pre>
 "
 
         if [[ "${FORCE_NO_CHECK}" -eq 0 ]]; then
@@ -376,7 +376,7 @@ backup_cmd_maintenance() {
                 job_failed=1
             fi
             extra+="Check: <b>${check_st}</b>
-<pre>${CHECK_REPORT_STATS:-}</pre>
+<pre>$(tg_html_escape "${CHECK_REPORT_STATS:-}")</pre>
 "
         fi
 
