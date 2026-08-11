@@ -106,20 +106,30 @@ backup_build_backup_args() {
     fi
 }
 
-backup_foreach_job() {
-    # Prints job file paths that are enabled (or all if include_disabled=1 as $2)
+backup_collect_jobs() {
+    # Prints enabled job file paths (or all if include_disabled=1 as $2).
+    # Returns 1 if resolve fails or any matched job file fails to load.
     local filter="${1:-}"
     local include_disabled="${2:-0}"
-    local line
+    local line out rc=0
+
+    out="$(backup_resolve_jobs "$filter")" || return 1
+
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
-        backup_load_job_file "$line" || continue
+        if ! backup_load_job_file "$line"; then
+            log_error "Invalid job config: ${line}"
+            rc=1
+            continue
+        fi
         if [[ "$include_disabled" != "1" && "${JOB_ENABLED}" != "1" ]]; then
             log_info "Job '${JOB_NAME}' disabled, skipping."
             continue
         fi
         printf '%s\n' "$line"
-    done < <(backup_resolve_jobs "$filter")
+    done <<< "$out"
+
+    return "$rc"
 }
 
 backup_run_one_job() {
@@ -222,22 +232,24 @@ backup_cmd_run() {
     backup_parse_args "$@"
     backup_load_global
 
-    local failed=0 line
+    local failed=0 line list enum_rc=0
+    list="$(backup_collect_jobs "${CMD_JOB_FILTER}")" || enum_rc=$?
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
         if ! backup_run_one_job "$line"; then
             failed=1
         fi
-    done < <(backup_foreach_job "${CMD_JOB_FILTER}")
+    done <<< "$list"
 
-    [[ "$failed" -eq 0 ]]
+    [[ "$failed" -eq 0 && "$enum_rc" -eq 0 ]]
 }
 
 backup_cmd_dump() {
     backup_parse_args "$@"
     backup_load_global
 
-    local line kept_dir
+    local line kept_dir list enum_rc=0
+    list="$(backup_collect_jobs "${CMD_JOB_FILTER}")" || enum_rc=$?
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
         backup_load_job_file "$line"
@@ -255,38 +267,47 @@ backup_cmd_dump() {
             backup_job_cleanup
             backup_job_clear_trap
         fi
-    done < <(backup_foreach_job "${CMD_JOB_FILTER}")
+    done <<< "$list"
+
+    [[ "$enum_rc" -eq 0 ]]
 }
 
 backup_cmd_forget() {
     backup_parse_args "$@"
     backup_load_global
-    local line
+    local line list enum_rc=0
+    list="$(backup_collect_jobs "${CMD_JOB_FILTER}")" || enum_rc=$?
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
         backup_load_job_file "$line"
         backup_restic_forget || true
-    done < <(backup_foreach_job "${CMD_JOB_FILTER}")
+    done <<< "$list"
+
+    [[ "$enum_rc" -eq 0 ]]
 }
 
 backup_cmd_check() {
     backup_parse_args "$@"
     backup_load_global
-    local line
+    local line list enum_rc=0
+    list="$(backup_collect_jobs "${CMD_JOB_FILTER}")" || enum_rc=$?
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
         backup_load_job_file "$line"
         backup_restic_check || true
-    done < <(backup_foreach_job "${CMD_JOB_FILTER}")
+    done <<< "$list"
+
+    [[ "$enum_rc" -eq 0 ]]
 }
 
 backup_cmd_maintenance() {
     backup_parse_args "$@"
     backup_load_global
 
-    local failed=0 line host extra forget_st check_st job_failed
+    local failed=0 line host extra forget_st check_st job_failed list enum_rc=0
     host="$(hostname 2>/dev/null || echo backup)"
 
+    list="$(backup_collect_jobs "${CMD_JOB_FILTER}")" || enum_rc=$?
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
         backup_load_job_file "$line"
@@ -338,26 +359,30 @@ backup_cmd_maintenance() {
 
         backup_job_cleanup
         backup_job_clear_trap
-    done < <(backup_foreach_job "${CMD_JOB_FILTER}")
+    done <<< "$list"
 
-    [[ "$failed" -eq 0 ]]
+    [[ "$failed" -eq 0 && "$enum_rc" -eq 0 ]]
 }
 
 backup_cmd_init() {
     backup_parse_args "$@"
     backup_load_global
-    local line
+    local line list enum_rc=0
+    list="$(backup_collect_jobs "${CMD_JOB_FILTER}" 1)" || enum_rc=$?
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
         backup_load_job_file "$line"
         backup_restic_init
-    done < <(backup_foreach_job "${CMD_JOB_FILTER}" 1)
+    done <<< "$list"
+
+    [[ "$enum_rc" -eq 0 ]]
 }
 
 backup_cmd_status() {
     backup_parse_args "$@"
     backup_load_global
-    local line
+    local line list enum_rc=0
+    list="$(backup_collect_jobs "${CMD_JOB_FILTER}" 1)" || enum_rc=$?
     while IFS= read -r line; do
         [[ -z "$line" ]] && continue
         backup_load_job_file "$line"
@@ -374,7 +399,9 @@ backup_cmd_status() {
         backup_restic_probe
         backup_restic snapshots --latest 5
         set -e
-    done < <(backup_foreach_job "${CMD_JOB_FILTER}" 1)
+    done <<< "$list"
+
+    [[ "$enum_rc" -eq 0 ]]
 }
 
 backup_usage() {
