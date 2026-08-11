@@ -75,6 +75,50 @@ backup_job_with_lock_end() {
     backup_job_clear_trap
 }
 
+# Run fn under the current job's flock; always release if acquired.
+# busy_policy: soft (busy → 0) | fail (busy → 1). Lock errors always → 1.
+backup_with_job_lock() {
+    local busy_policy="$1"
+    local fn="$2"
+    shift 2
+    local lock_rc=0 rc=0
+
+    backup_job_with_lock_begin || lock_rc=$?
+    if [[ "$lock_rc" -eq 1 ]]; then
+        if [[ "$busy_policy" == "soft" ]]; then
+            return 0
+        fi
+        return 1
+    fi
+    if [[ "$lock_rc" -ne 0 ]]; then
+        return 1
+    fi
+
+    "$fn" "$@" || rc=$?
+    backup_job_with_lock_end
+    return "$rc"
+}
+
+# Collect jobs, preflight, call fn once per job file. Aggregates failures.
+# backup_foreach_job <filter> <include_disabled> <fn>
+backup_foreach_job() {
+    local filter="${1:-}"
+    local include_disabled="${2:-0}"
+    local fn="$3"
+    local list enum_rc=0 failed=0 line
+
+    list="$(backup_collect_jobs "$filter" "$include_disabled")" || enum_rc=$?
+    backup_preflight "$list" || return 1
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        if ! "$fn" "$line"; then
+            failed=1
+        fi
+    done <<< "$list"
+
+    [[ "$failed" -eq 0 && "$enum_rc" -eq 0 ]]
+}
+
 # Check after backup if DO_CHECK_AFTER_BACKUP=1, or today matches CHECK_WEEKDAY (1=Mon…7=Sun).
 backup_should_run_check() {
     if [[ "${FORCE_NO_CHECK:-0}" -eq 1 ]]; then
@@ -151,6 +195,79 @@ backup_collect_jobs() {
     return "$rc"
 }
 
+backup_run_job_locked() {
+    local host rc=0 stats raw_tail="" forget_st="" check_st=""
+
+    host="$(hostname 2>/dev/null || echo backup)"
+    log_info "=== Job '${JOB_NAME}' on ${host} ==="
+
+    BACKUP_TMP_DIR=""
+    FORGET_REPORT_STATS=""
+    CHECK_REPORT_STATS=""
+
+    if backup_dumps_needed; then
+        backup_prepare_tmp
+        if ! backup_run_dumps "${BACKUP_TMP_DIR}" "${BACKUP_TIMESTAMP}"; then
+            log_error "Job '${JOB_NAME}' dumps failed."
+            backup_send_report "${JOB_NAME}" "$host" "[FAIL]" "dumps failed" "n/a" ""
+            return 1
+        fi
+    fi
+
+    if ! backup_restic_probe; then
+        backup_send_report "${JOB_NAME}" "$host" "[FAIL]" "repository not accessible" "n/a" ""
+        return 1
+    fi
+
+    backup_build_backup_args
+
+    set +e
+    backup_restic_backup "${BACKUP_RESTIC_ARGS[@]}" "${BACKUP_TARGETS[@]}"
+    rc=$?
+    set -e
+
+    stats="$(backup_extract_restic_stats)"
+
+    if [[ "$rc" -ne 0 ]]; then
+        raw_tail="$(backup_restic_log_tail || true)"
+        log_error "Job '${JOB_NAME}' backup failed (exit ${rc})."
+        backup_send_report "${JOB_NAME}" "$host" "[FAIL]" "backup failed" "${stats}" "${raw_tail}"
+        return 1
+    fi
+
+    log_info "Job '${JOB_NAME}' backup OK."
+
+    if [[ "${FORCE_NO_FORGET}" -eq 0 && "${DO_FORGET_AFTER_BACKUP}" == "1" ]]; then
+        if backup_restic_forget; then
+            forget_st="[OK]"
+        else
+            forget_st="[FAIL]"
+            rc=1
+        fi
+    fi
+
+    if backup_should_run_check; then
+        if backup_restic_check; then
+            check_st="[OK]"
+        else
+            check_st="[FAIL]"
+            rc=1
+        fi
+    fi
+
+    if [[ "$rc" -eq 0 ]]; then
+        backup_send_report "${JOB_NAME}" "$host" "[OK]" "completed successfully" "${stats}" "" \
+            "$forget_st" "${FORGET_REPORT_STATS:-}" \
+            "$check_st" "${CHECK_REPORT_STATS:-}"
+    else
+        backup_send_report "${JOB_NAME}" "$host" "[FAIL]" "backup OK, maintenance failed" "${stats}" "" \
+            "$forget_st" "${FORGET_REPORT_STATS:-}" \
+            "$check_st" "${CHECK_REPORT_STATS:-}"
+    fi
+
+    return "$rc"
+}
+
 backup_run_one_job() {
     local job_file="$1"
     backup_load_job_file "$job_file"
@@ -160,295 +277,149 @@ backup_run_one_job() {
         return 1
     fi
 
-    local lock_rc=0 host
-    backup_job_with_lock_begin || lock_rc=$?
     # run: busy → soft-skip (overlapping timer is OK)
-    if [[ "$lock_rc" -eq 1 ]]; then
-        return 0
+    backup_with_job_lock soft backup_run_job_locked
+}
+
+backup_job_do_dump() {
+    local job_file="$1"
+    local kept_dir rc=0
+
+    backup_load_job_file "$job_file"
+    backup_job_install_trap
+    backup_prepare_tmp
+    if ! backup_run_dumps "${BACKUP_TMP_DIR}" "${BACKUP_TIMESTAMP}"; then
+        rc=1
+    elif [[ "${KEEP_DUMPS:-0}" == "1" ]]; then
+        kept_dir="${BACKUP_TMP_DIR}"
+        BACKUP_TMP_DIR=""
+        log_info "KEEP_DUMPS=1 — dumps kept in ${kept_dir}"
     fi
-    if [[ "$lock_rc" -ne 0 ]]; then
-        return 1
-    fi
+    backup_job_cleanup
+    backup_job_clear_trap
+    return "$rc"
+}
+
+backup_job_do_forget() {
+    local job_file="$1"
+    backup_load_job_file "$job_file"
+    # forget: busy → fail (manual op must not silently no-op)
+    backup_with_job_lock fail backup_restic_forget
+}
+
+backup_job_do_check() {
+    local job_file="$1"
+    backup_load_job_file "$job_file"
+    # check: busy → fail (manual op must not silently no-op)
+    backup_with_job_lock fail backup_restic_check
+}
+
+backup_job_do_maintenance() {
+    local job_file="$1"
+    backup_load_job_file "$job_file"
+    # maintenance: busy → soft-skip (same overlap policy as run)
+    backup_with_job_lock soft backup_maintenance_locked
+}
+
+backup_maintenance_locked() {
+    local host st="[OK]" job_failed=0 forget_st check_st=""
 
     host="$(hostname 2>/dev/null || echo backup)"
-    log_info "=== Job '${JOB_NAME}' on ${host} ==="
-
-    BACKUP_TMP_DIR=""
     FORGET_REPORT_STATS=""
     CHECK_REPORT_STATS=""
 
-    local rc=0 stats raw_tail extra="" forget_st="" check_st=""
-
-    if backup_dumps_needed; then
-        backup_prepare_tmp
-        if ! backup_run_dumps "${BACKUP_TMP_DIR}" "${BACKUP_TIMESTAMP}"; then
-            log_error "Job '${JOB_NAME}' dumps failed."
-            backup_send_report "${JOB_NAME}" "$host" "[FAIL]" "dumps failed" "n/a" ""
-            rc=1
-        fi
+    if backup_restic_forget; then
+        forget_st="[OK]"
+    else
+        forget_st="[FAIL]"
+        job_failed=1
     fi
 
-    if [[ "$rc" -eq 0 ]] && ! backup_restic_probe; then
-        backup_send_report "${JOB_NAME}" "$host" "[FAIL]" "repository not accessible" "n/a" ""
-        rc=1
-    fi
-
-    if [[ "$rc" -eq 0 ]]; then
-        backup_build_backup_args
-
-        set +e
-        backup_restic_backup "${BACKUP_RESTIC_ARGS[@]}" "${BACKUP_TARGETS[@]}"
-        rc=$?
-        set -e
-
-        stats="$(backup_extract_restic_stats)"
-
-        if [[ "$rc" -ne 0 ]]; then
-            raw_tail="$(backup_restic_log_tail || true)"
-            log_error "Job '${JOB_NAME}' backup failed (exit ${rc})."
-            backup_send_report "${JOB_NAME}" "$host" "[FAIL]" "backup failed" "${stats}" "${raw_tail}"
+    if [[ "${FORCE_NO_CHECK}" -eq 0 ]]; then
+        if backup_restic_check; then
+            check_st="[OK]"
         else
-            log_info "Job '${JOB_NAME}' backup OK."
-
-            if [[ "${FORCE_NO_FORGET}" -eq 0 && "${DO_FORGET_AFTER_BACKUP}" == "1" ]]; then
-                if backup_restic_forget; then
-                    forget_st="[OK]"
-                else
-                    forget_st="[FAIL]"
-                    rc=1
-                fi
-                extra+="Prune: <b>${forget_st}</b>
-<pre>$(tg_html_escape "${FORGET_REPORT_STATS:-}")</pre>
-"
-            fi
-
-            if backup_should_run_check; then
-                if backup_restic_check; then
-                    check_st="[OK]"
-                else
-                    check_st="[FAIL]"
-                    rc=1
-                fi
-                extra+="Check: <b>${check_st}</b>
-<pre>$(tg_html_escape "${CHECK_REPORT_STATS:-}")</pre>
-"
-            fi
-
-            if [[ "$rc" -eq 0 ]]; then
-                backup_send_report "${JOB_NAME}" "$host" "[OK]" "completed successfully" "${stats}" "" "${extra}"
-            else
-                backup_send_report "${JOB_NAME}" "$host" "[FAIL]" "backup OK, maintenance failed" "${stats}" "" "${extra}"
-            fi
+            check_st="[FAIL]"
+            job_failed=1
         fi
     fi
 
-    backup_job_with_lock_end
-    return "$rc"
+    if [[ "$job_failed" -ne 0 ]]; then
+        st="[FAIL]"
+    fi
+    backup_send_report "${JOB_NAME}" "$host" "$st" "maintenance" "" "" \
+        "$forget_st" "${FORGET_REPORT_STATS:-}" \
+        "$check_st" "${CHECK_REPORT_STATS:-}"
+
+    return "$job_failed"
+}
+
+backup_job_do_init() {
+    local job_file="$1"
+    backup_load_job_file "$job_file"
+    # init: busy → fail (manual op must not silently no-op)
+    backup_with_job_lock fail backup_restic_init
+}
+
+backup_job_do_status() {
+    local job_file="$1"
+    backup_load_job_file "$job_file"
+    log_info "Job '${JOB_NAME}': repo=${RESTIC_REPOSITORY} enabled=${JOB_ENABLED} backend=${BACKEND}"
+    case "${BACKEND}" in
+        rest)
+            log_info "REST: ${REST_SCHEME}://${REST_HOST:-?}:${REST_PORT}"
+            ;;
+        *)
+            log_info "SFTP: ${SFTP_USER}@${SFTP_HOST:-?} port=${SFTP_PORT}"
+            ;;
+    esac
+    set +e
+    backup_restic_probe
+    backup_restic snapshots --latest 5
+    set -e
+    return 0
 }
 
 backup_cmd_run() {
     backup_parse_args "$@"
     backup_load_global
-
-    local failed=0 line list enum_rc=0
-    list="$(backup_collect_jobs "${CMD_JOB_FILTER}")" || enum_rc=$?
-    backup_preflight "$list" || return 1
-    while IFS= read -r line; do
-        [[ -z "$line" ]] && continue
-        if ! backup_run_one_job "$line"; then
-            failed=1
-        fi
-    done <<< "$list"
-
-    [[ "$failed" -eq 0 && "$enum_rc" -eq 0 ]]
+    backup_foreach_job "${CMD_JOB_FILTER}" 0 backup_run_one_job
 }
 
 backup_cmd_dump() {
     backup_parse_args "$@"
     backup_load_global
-
-    local line kept_dir list enum_rc=0
-    list="$(backup_collect_jobs "${CMD_JOB_FILTER}")" || enum_rc=$?
-    backup_preflight "$list" || return 1
-    while IFS= read -r line; do
-        [[ -z "$line" ]] && continue
-        backup_load_job_file "$line"
-        backup_job_install_trap
-        backup_prepare_tmp
-        if ! backup_run_dumps "${BACKUP_TMP_DIR}" "${BACKUP_TIMESTAMP}"; then
-            return 1
-        fi
-        if [[ "${KEEP_DUMPS:-0}" == "1" ]]; then
-            kept_dir="${BACKUP_TMP_DIR}"
-            BACKUP_TMP_DIR=""
-            backup_job_clear_trap
-            log_info "KEEP_DUMPS=1 — dumps kept in ${kept_dir}"
-        else
-            backup_job_cleanup
-            backup_job_clear_trap
-        fi
-    done <<< "$list"
-
-    [[ "$enum_rc" -eq 0 ]]
+    backup_foreach_job "${CMD_JOB_FILTER}" 0 backup_job_do_dump
 }
 
 backup_cmd_forget() {
     backup_parse_args "$@"
     backup_load_global
-    local line list enum_rc=0 failed=0 lock_rc
-    list="$(backup_collect_jobs "${CMD_JOB_FILTER}")" || enum_rc=$?
-    backup_preflight "$list" || return 1
-    while IFS= read -r line; do
-        [[ -z "$line" ]] && continue
-        backup_load_job_file "$line"
-        lock_rc=0
-        backup_job_with_lock_begin || lock_rc=$?
-        # forget: busy or lock error → fail (manual op must not silently no-op)
-        if [[ "$lock_rc" -ne 0 ]]; then
-            failed=1
-            continue
-        fi
-        backup_restic_forget || failed=1
-        backup_job_with_lock_end
-    done <<< "$list"
-
-    [[ "$failed" -eq 0 && "$enum_rc" -eq 0 ]]
+    backup_foreach_job "${CMD_JOB_FILTER}" 0 backup_job_do_forget
 }
 
 backup_cmd_check() {
     backup_parse_args "$@"
     backup_load_global
-    local line list enum_rc=0 failed=0 lock_rc
-    list="$(backup_collect_jobs "${CMD_JOB_FILTER}")" || enum_rc=$?
-    backup_preflight "$list" || return 1
-    while IFS= read -r line; do
-        [[ -z "$line" ]] && continue
-        backup_load_job_file "$line"
-        lock_rc=0
-        backup_job_with_lock_begin || lock_rc=$?
-        # check: busy or lock error → fail (manual op must not silently no-op)
-        if [[ "$lock_rc" -ne 0 ]]; then
-            failed=1
-            continue
-        fi
-        backup_restic_check || failed=1
-        backup_job_with_lock_end
-    done <<< "$list"
-
-    [[ "$failed" -eq 0 && "$enum_rc" -eq 0 ]]
+    backup_foreach_job "${CMD_JOB_FILTER}" 0 backup_job_do_check
 }
 
 backup_cmd_maintenance() {
     backup_parse_args "$@"
     backup_load_global
-
-    local failed=0 line host extra forget_st check_st job_failed list enum_rc=0 lock_rc
-    host="$(hostname 2>/dev/null || echo backup)"
-
-    list="$(backup_collect_jobs "${CMD_JOB_FILTER}")" || enum_rc=$?
-    backup_preflight "$list" || return 1
-    while IFS= read -r line; do
-        [[ -z "$line" ]] && continue
-        backup_load_job_file "$line"
-        lock_rc=0
-        backup_job_with_lock_begin || lock_rc=$?
-        # maintenance: busy → soft-skip (same overlap policy as run)
-        if [[ "$lock_rc" -eq 1 ]]; then
-            continue
-        fi
-        if [[ "$lock_rc" -ne 0 ]]; then
-            failed=1
-            continue
-        fi
-
-        job_failed=0
-        extra=""
-        FORGET_REPORT_STATS=""
-        CHECK_REPORT_STATS=""
-
-        if backup_restic_forget; then
-            forget_st="[OK]"
-        else
-            forget_st="[FAIL]"
-            job_failed=1
-        fi
-        extra+="Prune: <b>${forget_st}</b>
-<pre>$(tg_html_escape "${FORGET_REPORT_STATS:-}")</pre>
-"
-
-        if [[ "${FORCE_NO_CHECK}" -eq 0 ]]; then
-            if backup_restic_check; then
-                check_st="[OK]"
-            else
-                check_st="[FAIL]"
-                job_failed=1
-            fi
-            extra+="Check: <b>${check_st}</b>
-<pre>$(tg_html_escape "${CHECK_REPORT_STATS:-}")</pre>
-"
-        fi
-
-        local st="[OK]"
-        if [[ "$job_failed" -ne 0 ]]; then
-            st="[FAIL]"
-            failed=1
-        fi
-        backup_send_report "${JOB_NAME}" "$host" "$st" "maintenance" "" "" "${extra}"
-
-        backup_job_with_lock_end
-    done <<< "$list"
-
-    [[ "$failed" -eq 0 && "$enum_rc" -eq 0 ]]
+    backup_foreach_job "${CMD_JOB_FILTER}" 0 backup_job_do_maintenance
 }
 
 backup_cmd_init() {
     backup_parse_args "$@"
     backup_load_global
-    local line list enum_rc=0 failed=0 lock_rc
-    list="$(backup_collect_jobs "${CMD_JOB_FILTER}" 1)" || enum_rc=$?
-    backup_preflight "$list" || return 1
-    while IFS= read -r line; do
-        [[ -z "$line" ]] && continue
-        backup_load_job_file "$line"
-        lock_rc=0
-        backup_job_with_lock_begin || lock_rc=$?
-        # init: busy or lock error → fail (manual op must not silently no-op)
-        if [[ "$lock_rc" -ne 0 ]]; then
-            failed=1
-            continue
-        fi
-        backup_restic_init || failed=1
-        backup_job_with_lock_end
-    done <<< "$list"
-
-    [[ "$failed" -eq 0 && "$enum_rc" -eq 0 ]]
+    backup_foreach_job "${CMD_JOB_FILTER}" 1 backup_job_do_init
 }
 
 backup_cmd_status() {
     backup_parse_args "$@"
     backup_load_global
-    local line list enum_rc=0
-    list="$(backup_collect_jobs "${CMD_JOB_FILTER}" 1)" || enum_rc=$?
-    backup_preflight "$list" || return 1
-    while IFS= read -r line; do
-        [[ -z "$line" ]] && continue
-        backup_load_job_file "$line"
-        log_info "Job '${JOB_NAME}': repo=${RESTIC_REPOSITORY} enabled=${JOB_ENABLED} backend=${BACKEND}"
-        case "${BACKEND}" in
-            rest)
-                log_info "REST: ${REST_SCHEME}://${REST_HOST:-?}:${REST_PORT}"
-                ;;
-            *)
-                log_info "SFTP: ${SFTP_USER}@${SFTP_HOST:-?} port=${SFTP_PORT}"
-                ;;
-        esac
-        set +e
-        backup_restic_probe
-        backup_restic snapshots --latest 5
-        set -e
-    done <<< "$list"
-
-    [[ "$enum_rc" -eq 0 ]]
+    backup_foreach_job "${CMD_JOB_FILTER}" 1 backup_job_do_status
 }
 
 backup_usage() {
