@@ -6,15 +6,15 @@ set -euo pipefail
 # Caller should still release on EXIT trap for tidy unlock before exit.
 # Return codes: 0 = acquired, 1 = busy (already running), 2 = error (e.g. permissions).
 #
-# Uses fixed FD BACKUP_LOCK_FD_NUM so this works on bash 3.2+ (no {fd} realloc).
+# Uses bash 4.1+ automatic FD allocation: exec {fd}>file
 
 BACKUP_ACTIVE_LOCK=""
 BACKUP_LOCK_FD=""
-BACKUP_LOCK_FD_NUM=200
 
 backup_lock_acquire() {
     local lock_file="${1:-${LOCK_FILE:-/var/run/backup/backup.lock}}"
     local parent
+    local fd
 
     if [[ -n "${BACKUP_LOCK_FD:-}" ]]; then
         log_error "Lock already held by this process (${BACKUP_ACTIVE_LOCK})"
@@ -33,18 +33,18 @@ backup_lock_acquire() {
     fi
 
     # Open/create lock file; keep FD open for the lifetime of the lock.
-    if ! eval "exec ${BACKUP_LOCK_FD_NUM}>\"\${lock_file}\""; then
+    if ! exec {fd}>"$lock_file"; then
         log_error "Cannot open lock file ${lock_file}"
         return 2
     fi
 
-    if ! flock -n "${BACKUP_LOCK_FD_NUM}"; then
-        eval "exec ${BACKUP_LOCK_FD_NUM}>&-" 2>/dev/null || true
+    if ! flock -n "$fd"; then
+        exec {fd}>&-
         log_info "Already running (lock held at ${lock_file}), skipping."
         return 1
     fi
 
-    BACKUP_LOCK_FD="${BACKUP_LOCK_FD_NUM}"
+    BACKUP_LOCK_FD="$fd"
     BACKUP_ACTIVE_LOCK="$lock_file"
     # Best-effort owner hint for operators (not used for lock logic).
     printf '%s\n' "$$" >"${lock_file}.pid" 2>/dev/null || true
@@ -55,7 +55,7 @@ backup_lock_acquire() {
 backup_lock_release() {
     if [[ -n "${BACKUP_LOCK_FD:-}" ]]; then
         flock -u "${BACKUP_LOCK_FD}" 2>/dev/null || true
-        eval "exec ${BACKUP_LOCK_FD}>&-" 2>/dev/null || true
+        exec {BACKUP_LOCK_FD}>&-
         BACKUP_LOCK_FD=""
     fi
     if [[ -n "${BACKUP_ACTIVE_LOCK:-}" ]]; then

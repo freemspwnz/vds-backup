@@ -18,19 +18,21 @@ BACKUP_INHERIT_VARS=(
     DO_FORGET_AFTER_BACKUP DO_CHECK_AFTER_BACKUP CHECK_WEEKDAY
 )
 
-# In-memory snapshot as BACKUP_SNAP_<VAR> (bash 3.2-friendly; no assoc arrays).
+# In-memory snapshot of inheritable globals (bash 4+ associative array).
+declare -A BACKUP_GLOBAL_SNAPSHOT=()
+
 backup_snapshot_globals() {
     local v
+    BACKUP_GLOBAL_SNAPSHOT=()
     for v in "${BACKUP_INHERIT_VARS[@]}"; do
-        printf -v "BACKUP_SNAP_${v}" '%s' "${!v-}"
+        BACKUP_GLOBAL_SNAPSHOT[$v]="${!v-}"
     done
 }
 
 backup_restore_globals() {
-    local v snap
+    local v
     for v in "${BACKUP_INHERIT_VARS[@]}"; do
-        snap="BACKUP_SNAP_${v}"
-        printf -v "$v" '%s' "${!snap-}"
+        printf -v "$v" '%s' "${BACKUP_GLOBAL_SNAPSHOT[$v]-}"
     done
 }
 

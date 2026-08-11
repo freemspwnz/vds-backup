@@ -13,7 +13,8 @@ Linux client for [restic](https://restic.net/) backups to a remote store over **
 
 ## Requirements
 
-- bash, restic, curl (Telegram), `flock` (util-linux)
+- bash ≥ 4.1 (associative arrays, `{fd}` redirects; not macOS `/bin/bash` 3.2)
+- restic, curl (Telegram), `flock` (util-linux)
 - `openssh-client` when using `BACKEND=sftp`
 - `sqlite3` if SQLite dumps enabled
 - `docker` if Postgres dump via container enabled

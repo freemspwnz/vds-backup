@@ -2,6 +2,12 @@
 
 set -euo pipefail
 
+# Associative arrays: bash 4.0+; automatic FD allocation ({fd}): bash 4.1+.
+if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 1))); then
+    printf 'ERROR: bash 4.1+ required (found %s)\n' "${BASH_VERSION}" >&2
+    exit 1
+fi
+
 PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${PATH:-}"
 
 backup_resolve_repo_root() {
