@@ -250,6 +250,8 @@ backup_resolve_repository() {
 }
 
 backup_build_sftp_command() {
+    # Build argv, then shell-quote for restic's sftp.command string split.
+    # Override with SFTP_COMMAND for fully custom ssh/sftp invocations.
     if [[ -n "${SFTP_COMMAND:-}" ]]; then
         printf '%s\n' "${SFTP_COMMAND}"
         return 0
@@ -257,12 +259,28 @@ backup_build_sftp_command() {
 
     backup_require_var SFTP_HOST
 
-    local cmd="ssh -p ${SFTP_PORT} -o StrictHostKeyChecking=accept-new -o BatchMode=yes"
-    if [[ -n "${SFTP_IDENTITY:-}" ]]; then
-        cmd+=" -i ${SFTP_IDENTITY} -o IdentitiesOnly=yes"
+    if [[ ! "${SFTP_PORT}" =~ ^[0-9]+$ ]]; then
+        log_error "SFTP_PORT must be numeric (got '${SFTP_PORT}')"
+        return 1
     fi
-    cmd+=" ${SFTP_USER}@${SFTP_HOST} -s sftp"
-    printf '%s\n' "$cmd"
+
+    local -a args=(
+        ssh
+        -p "$SFTP_PORT"
+        -o StrictHostKeyChecking=accept-new
+        -o BatchMode=yes
+    )
+    if [[ -n "${SFTP_IDENTITY:-}" ]]; then
+        args+=(-i "$SFTP_IDENTITY" -o IdentitiesOnly=yes)
+    fi
+    args+=("${SFTP_USER}@${SFTP_HOST}" -s sftp)
+
+    local -a quoted=()
+    local a
+    for a in "${args[@]}"; do
+        quoted+=("$(printf '%q' "$a")")
+    done
+    printf '%s\n' "${quoted[*]}"
 }
 
 backup_job_lock_file() {
