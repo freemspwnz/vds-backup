@@ -5,9 +5,13 @@ After=network-online.target
 
 [Service]
 Type=oneshot
+User=root
+# systemd creates /var/cache/backup-utils; restic uses it instead of $HOME/.cache
+CacheDirectory=backup-utils
 ExecStart=/usr/bin/env bash /usr/local/bin/backup.sh run
 Environment=BACKUP_CONF_PATH=/usr/local/etc/backup/backup.conf
 Environment=ENV_FILE=/usr/local/etc/backup/.env
+Environment=RESTIC_CACHE_DIR=/var/cache/backup-utils
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=backup

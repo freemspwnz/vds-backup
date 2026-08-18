@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
 # Uninstall backup-utils from /usr/local and systemd.
-# Removes only what install.sh deploys (symlink, units, /usr/local/etc/backup).
-# Does NOT touch: git checkout, restic binary, remote restic repo, SSH keys,
-# Docker data, or parent dirs like /usr/local/{bin,etc}.
+# Removes only what install.sh deploys (symlink, units, /usr/local/etc/backup)
+# plus leftover lock/cache/tmp dirs. Does NOT touch: git checkout, restic binary,
+# remote restic repo, SSH keys, Docker data, or parent dirs like /usr/local/{bin,etc}.
 #
 # Usage: sudo ./uninstall.sh [--yes|-y]
 
@@ -52,6 +52,7 @@ if [[ "$YES" -ne 1 ]]; then
     echo "  - ${BIN_DIR}/backup.sh symlink"
     echo "  - systemd backup.timer / backup.service (and legacy maintenance units)"
     echo "  - ${ETC_BACKUP} (configs, jobs, and secrets)"
+    echo "  - leftover ${LOCK_DIR_BASE} and /var/cache/backup-utils"
     if [[ -f "${ETC_BACKUP}/.env" ]]; then
         echo "WARN: ${ETC_BACKUP}/.env exists and will be permanently deleted (RESTIC_PASSWORD / REST_PASS / TG_*)."
     else
@@ -103,10 +104,11 @@ if [[ -d "${ETC_BACKUP}" ]]; then
     echo "Removed ${ETC_BACKUP}"
 fi
 
-# Leftover lock files/dirs and temp dump dirs from crashed runs
+# Leftover lock files/dirs, restic cache (CacheDirectory=), temp dump dirs
 if [[ -d "${LOCK_DIR_BASE}" ]]; then
     rm -rf -- "${LOCK_DIR_BASE}"
 fi
+rm -rf -- /var/cache/backup-utils
 
 shopt -s nullglob
 for d in /var/tmp/backup_dumps.* /tmp/backup_dumps.*; do
