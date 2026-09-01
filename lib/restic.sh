@@ -117,10 +117,11 @@ backup_restic_forget() {
 
     tmp_out="$(mktemp "${TMPDIR:-/tmp}/restic_forget.XXXXXX")"
 
-    log_info "forget/prune ${RESTIC_REPOSITORY} (daily=${keep_daily} weekly=${keep_weekly} monthly=${keep_monthly})"
+    log_info "forget/prune ${RESTIC_REPOSITORY} (daily=${keep_daily} weekly=${keep_weekly} monthly=${keep_monthly}, group-by=host)"
 
     set +e
     backup_restic forget \
+        --group-by host \
         --keep-daily "$keep_daily" \
         --keep-weekly "$keep_weekly" \
         --keep-monthly "$keep_monthly" \
