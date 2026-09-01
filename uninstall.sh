@@ -111,8 +111,9 @@ fi
 rm -rf -- /var/cache/backup-utils
 
 shopt -s nullglob
-for d in /var/tmp/backup_dumps.* /tmp/backup_dumps.*; do
-    [[ -d "$d" ]] && rm -rf -- "$d"
+for d in /var/tmp/backup_dumps /tmp/backup_dumps \
+    /var/tmp/backup_dumps.* /tmp/backup_dumps.*; do
+    [[ -e "$d" ]] && rm -rf -- "$d"
 done
 shopt -u nullglob
 

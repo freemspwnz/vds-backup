@@ -28,6 +28,7 @@ SFTP_IDENTITY="/home/user/.ssh/id_ed25519"
 # REST_PATH_PREFIX=""
 # RESTIC_CACERT="/usr/local/etc/backup/rest-ca.pem"
 
+# DB dumps: ${BACKUP_TMP_BASE_DIR}/backup_dumps/<JOB_NAME>/ (stable; not mktemp)
 BACKUP_TMP_BASE_DIR="/var/tmp"
 LOCK_DIR_BASE="/var/run/backup"
 

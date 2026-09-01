@@ -31,14 +31,29 @@ backup_parse_args() {
     done
 }
 
-backup_cleanup_tmp() {
-    if [[ -n "${BACKUP_TMP_DIR:-}" && -d "${BACKUP_TMP_DIR}" ]]; then
-        log_info "Removing temporary dump directory: ${BACKUP_TMP_DIR}"
-        rm -rf -- "${BACKUP_TMP_DIR}" || true
-        BACKUP_TMP_DIR=""
+backup_job_dumps_dir() {
+    local base="${BACKUP_TMP_BASE_DIR:-/var/tmp}"
+    printf '%s/backup_dumps/%s\n' "${base%/}" "${JOB_NAME}"
+}
+
+# Remove dump artifacts only (stable dir is kept). Honors KEEP_DUMPS=1.
+backup_cleanup_dump_files() {
+    local dir="${1:-${BACKUP_TMP_DIR:-}}"
+    if [[ -z "$dir" || ! -d "$dir" ]]; then
+        return 0
     fi
+    if [[ "${KEEP_DUMPS:-0}" == "1" ]]; then
+        log_info "KEEP_DUMPS=1 — dump files kept in ${dir}"
+        return 0
+    fi
+    log_info "Removing dump files in ${dir}"
+    find "$dir" -type f \( -name '*.sql' -o -name '*.err' \) -delete 2>/dev/null || true
+}
+
+backup_cleanup_tmp() {
     rm -f "${BACKUP_RESTIC_LOG_FILE:-}" 2>/dev/null || true
     BACKUP_RESTIC_LOG_FILE=""
+    BACKUP_TMP_DIR=""
 }
 
 # Single cleanup owner for orchestrator EXIT traps (idempotent).
@@ -136,12 +151,11 @@ backup_should_run_check() {
     [[ "$today" == "$wd" ]]
 }
 
-backup_prepare_tmp() {
-    local base="${BACKUP_TMP_BASE_DIR:-/var/tmp}"
-    mkdir -p "$base"
+backup_prepare_dumps_dir() {
     BACKUP_TIMESTAMP="$(date '+%Y%m%d_%H%M%S')"
-    BACKUP_TMP_DIR="$(mktemp -d "${base%/}/backup_dumps.${BACKUP_TIMESTAMP}.XXXXXX")"
-    log_info "Temporary dump directory: ${BACKUP_TMP_DIR}"
+    BACKUP_TMP_DIR="$(backup_job_dumps_dir)"
+    mkdir -p "${BACKUP_TMP_DIR}"
+    log_info "Dump directory: ${BACKUP_TMP_DIR}"
 }
 
 backup_build_backup_args() {
@@ -206,7 +220,7 @@ backup_run_job_locked() {
     CHECK_REPORT_STATS=""
 
     if backup_dumps_needed; then
-        backup_prepare_tmp
+        backup_prepare_dumps_dir
         if ! backup_run_dumps "${BACKUP_TMP_DIR}" "${BACKUP_TIMESTAMP}"; then
             log_error "Job '${JOB_NAME}' dumps failed."
             backup_send_report "${JOB_NAME}" "$host" "[FAIL]" "dumps failed" "n/a" ""
@@ -236,6 +250,10 @@ backup_run_job_locked() {
     fi
 
     log_info "Job '${JOB_NAME}' backup OK."
+
+    if backup_dumps_needed; then
+        backup_cleanup_dump_files
+    fi
 
     if [[ "${FORCE_NO_FORGET}" -eq 0 && "${DO_FORGET_AFTER_BACKUP}" == "1" ]]; then
         if backup_restic_forget; then
@@ -283,17 +301,15 @@ backup_run_one_job() {
 
 backup_job_do_dump() {
     local job_file="$1"
-    local kept_dir rc=0
+    local rc=0
 
     backup_load_job_file "$job_file"
     backup_job_install_trap
-    backup_prepare_tmp
+    backup_prepare_dumps_dir
     if ! backup_run_dumps "${BACKUP_TMP_DIR}" "${BACKUP_TIMESTAMP}"; then
         rc=1
-    elif [[ "${KEEP_DUMPS:-0}" == "1" ]]; then
-        kept_dir="${BACKUP_TMP_DIR}"
-        BACKUP_TMP_DIR=""
-        log_info "KEEP_DUMPS=1 — dumps kept in ${kept_dir}"
+    else
+        backup_cleanup_dump_files
     fi
     backup_job_cleanup
     backup_job_clear_trap
